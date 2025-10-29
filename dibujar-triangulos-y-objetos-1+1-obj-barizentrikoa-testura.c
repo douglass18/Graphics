@@ -40,6 +40,19 @@ int paralelo;
 char fitxiz[100];
 int atzearpegiakmarraztu;
 
+typedef struct  
+{
+    int n; //number of points in the row 
+    int x[10]; //points
+    float u[10]; //corresponding u coordinates
+    float v[10]; //corresponding v coordinates
+            
+} ScanLine; //cut points
+ 
+
+ScanLine *intersectionTable = NULL; // Dynamic Table [dimentsioa]
+
+
 
 // TODO  m = m1 * m2 
 // m1 bider m2 matrizeen biderketa egin eta m matrizean jaso. 
@@ -77,13 +90,27 @@ int indx,indy;
 char * lag;
 //printf("texturan...%x\n",bufferra);
 //TODO get the desplacement for indx and indy
+
 // negative values?
+if (u < 0) {u = 0;}
+if (v < 0) {v = 0;}
+
 // values greater than 1?
-indx=0;
-indy=0;
+if (u > 1) {u = 1;}
+if (u > 1) {u = 1;}
+
+// Convert to texel coordinates
+indx= (int) (u * (dimx-1) + 0.5f);
+indy= (int) (v * (dimy-1) + 0.5f);
+
+// Invert V (PPM)
+indy = (dimy-1) - indy;
+
+// Points to the first texel (R)
 lag = (unsigned char *)bufferra;
 //printf("irtetera %x\n",lag[indy*dimx+indx]);
 return(lag+3*(indy*dimx+indx));
+
 }
 
 
@@ -116,7 +143,7 @@ void mxv(double *res, double *m, double *v)
 void mxp(point3 *pptr, double m[16], point3 p)
 {
     pptr->x = p.x;
-    pptr->y = p.y;
+    pptr->y = p.y;  
     pptr->z = p.z;
 }
 
@@ -170,8 +197,372 @@ void mesa_lortu(double* M)
 
 void argien_kalkulua_egin(object3d *optr, int ti)
 {
+
 }
 
+// Draws a pixel on the screen at the given x and y coordinates
+static void putpixel (float x,float y){
+
+    glBegin(GL_POINTS);
+    glVertex2f(x,y);
+    glEnd();
+}
+
+// Initialize the entire table to 0's
+static void initTable () {
+    for (int i = 0; i < dimentsioa; i++){
+        intersectionTable[i].n = 0;
+        for (int j = 0; j < 10; j++ ){
+            intersectionTable[i].x[j] = 0;
+            intersectionTable[i].u[j] = 0.0f;
+            intersectionTable[i].v[j] = 0.0f;
+        }
+    }
+}   
+
+// Sorts the array of x values in each table position (y) from lowest to highest
+// Needed because the edge algorithm stores them in the order they are found, which can be chaotic
+static void sortTable (){
+
+    /* Depending on the value of n (number of x's for the current y):
+        if n == 0 → continue (no intersection with the triangle)
+        if n == 1 → continue (vertical line case, already handled during drawing)
+        if n == 2:
+            - If both x values are equal → continue (single point)
+            - Otherwise → sort
+        if n > 2 → sort
+    */
+   
+    for (int y = 0; y < dimentsioa; y++){
+
+        if (intersectionTable[y].n < 2) continue;
+
+        // n >= 2
+        if (intersectionTable[y].n == 2 && (intersectionTable[y].x[0] == intersectionTable[y].x[1])) continue;
+        
+        for (int i = 0; i < intersectionTable[y].n - 1; i++) {
+            for (int j = i + 1; j < intersectionTable[y].n; j++) {
+                if (intersectionTable[y].x[i] > intersectionTable[y].x[j]) {
+
+                    // Swap X
+                    int tempX = intersectionTable[y].x[i];
+                    intersectionTable[y].x[i] = intersectionTable[y].x[j];
+                    intersectionTable[y].x[j] = tempX;
+
+                    // Swap U
+                    float tempU = intersectionTable[y].u[i];
+                    intersectionTable[y].u[i] = intersectionTable[y].u[j];
+                    intersectionTable[y].u[j] = tempU;
+
+                     // Swap V
+                    float tempV = intersectionTable[y].v[i];
+                    intersectionTable[y].v[i] = intersectionTable[y].v[j];
+                    intersectionTable[y].v[j] = tempV;
+
+                }
+            }
+        }
+    }   
+}
+
+// Store an intersection point in our table
+static void storePointT (int X, int Y,float u,float v ){
+
+    int idx = intersectionTable[Y].n;
+
+    //Avoid exceeding maximum number of x's values (10)
+    if (idx >= 10) return; 
+
+    intersectionTable[Y].x[idx] = X;
+    intersectionTable[Y].u[idx] = u;
+    intersectionTable[Y].v[idx] = v;
+    intersectionTable[Y].n++;    
+}
+
+// 1-Simplex (Line 1D)
+void linearInterpolationUV ( 
+    float x0, float y0, float u0, float v0, 
+    float x1, float y1, float u1, float v1,   
+    float x, float y,                         
+    float *u, float *v) 
+{
+    float t;
+
+    float dx = fabsf(x1 - x0); // Δx
+    float dy = fabsf(y1 - y0); // Δy
+    float length = fmaxf(dx, dy); 
+
+    // dx == dy
+    if (length == 0.0f) {
+        *u = u0;
+        *v = v0;
+        return;
+    }
+
+    if (dx >= dy) 
+        t = (x - x0) / (x1 - x0);
+    else
+        t = (y - y0) / (y1 - y0);
+
+    // Clamp t to [0, 1]
+    if (t < 0.0f) t = 0.0f;
+    if (t > 1.0f) t = 1.0f;
+
+    // Texture coordinates
+    *u = u0 + t * (u1 - u0);
+    *v = v0 + t * (v1 - v0);
+}
+
+// float coordinate [-1,1] to integer coordinate [0, dimmentsioa-1] 
+static int toInt (float c){
+
+    /* For any number in a range [a,b] that you want to map [A,B]
+
+                            B - A   
+            c' = A + (x-a) -------
+                            b - a
+    */
+    int c_p;
+
+    c_p = round((c + 1.0f) * (dimentsioa - 1) / (2.0f));
+
+    return c_p;
+}
+
+// integer coordinate [0, dimentsioa-1] to float coordinate [-1,1]
+static float toFloat (int c){
+    float c_p;
+
+    c_p = c * 2.0f / (dimentsioa - 1) - 1.0f;
+
+    return roundf(c_p * 1000000.0f) / 1000000.0f; //rounded to 6 decimals
+}
+
+// Bresenham's Algorithm
+void drawLine (float x0,float y0,float x1,float y1){
+    int x_0,y_0,x_1,y_1,dx,dy;
+    int offset; //direction
+    float P; //Parameter decision
+
+    //Convert to intengers 
+    x_0 = toInt(x0);
+    y_0 = toInt(y0);
+    x_1 = toInt(x1);
+    y_1 = toInt(y1);
+    
+    //Change in x and y
+    dx = abs(x_1 - x_0); //Δx
+    dy = abs(y_1 - y_0); //Δy
+
+    offset = x1 - x0 > 0 ? 1 : -1; // R = 1, L = -1
+    
+    if (dx == 0){ //Special Case (Vertical Line)
+
+        for (int i = 0; i < dy; i++){
+            putpixel(toFloat(x_0), toFloat(y_0 + (-1) * i));
+        }
+    } 
+    
+    else if (dx >= dy) { //Case 1: 0 <= m <= 1 (gentle slope,line closer to X-axis)
+
+        //Initializing
+        P = 2*dy - dx;
+        for (int i = 0; i < dx; i++){  
+            putpixel(toFloat(x_0 + offset*i), toFloat(y_0));
+ 
+            if (P > 0){ // Threshold reached
+                y_0-=1; // Move one pixel down
+                P = P - 2*dx; //Reduce
+            }
+
+            P = P + 2*dy; //Increment
+        }
+
+    } else { //Case 2: dx < dy | m > 1 (steep slope, line closer to Y-axis)
+
+        P = 2*dx - dy;
+        for (int i = 0; i < dy; i++){
+            putpixel(toFloat(x_0), toFloat(y_0 + (-1)*i));
+
+            if (P > 0){
+                x_0+=offset;
+                P = P - 2*dy;
+            }
+
+            P = P + 2*dx;       
+        }
+    }
+}
+
+// drawLine function, but With Texture mapping and Scanline point storage
+void drawLineWT (float x0,float y0,float u0,float v0,float x1,float y1,float u1, float v1){
+    int x_0,y_0,x_1,y_1,dx,dy;
+    int offset; //direction
+    float P; //Parameter decision
+    float u,v; 
+    float r,g,b; //Components Red - Green - Blue
+    unsigned char *texColor;
+
+    //Convert to intengers  
+    x_0 = toInt(x0);
+    y_0 = toInt(y0);
+    x_1 = toInt(x1);
+    y_1 = toInt(y1);
+    
+    //Change in x and y
+    dx = abs(x_1 - x_0); //Δx
+    dy = abs(y_1 - y_0); //Δy
+
+    offset = x1 - x0 > 0 ? 1 : -1; // R = 1, L = -1
+    
+    if (dx == 0){ //Special Case (Vertical Line)
+         
+    /*  Do not skip vertical edges: must be stored, 
+        as they can serve as the left or right boundary 
+        of the triangle
+    */
+        for (int i = 0; i < dy; i++){
+
+            linearInterpolationUV(x0,y0,u0,v0,x1,y1,u1,v1,toFloat(x_0),toFloat(y_0),&u,&v);
+            texColor =  color_textura(u,v);
+
+            // Normalize RGB values to [0,1]
+            r = texColor[0]/255.0f;
+            g = texColor[1]/255.0f;
+            b = texColor[2]/255.0f;
+
+            // Change the color
+            glColor3f(r,g,b);
+
+            putpixel(toFloat(x_0),toFloat(y_0));
+            storePointT(x_0,y_0,u,v);
+            y_0-= 1; //Decrement y along the Y-axis
+
+        }
+    } 
+    
+    else if (dx >= dy) { //Case 1: 0 <= m <= 1 (gentle slope,line closer to X-axis)
+
+        //Initializing
+        P = 2*dy - dx;
+        int prevY = -1;// keep track of last Y stored 
+        for (int i = 0; i < dx; i++){  
+
+            linearInterpolationUV(x0,y0,u0,v0,x1,y1,u1,v1,toFloat(x_0),toFloat(y_0),&u,&v);
+            texColor =  color_textura(u,v);
+            
+            // Normalize RGB values to [0,1]
+            r = texColor[0]/255.0f;
+            g = texColor[1]/255.0f;
+            b = texColor[2]/255.0f;
+
+            // Change the color 
+            glColor3f(r,g,b);
+
+            putpixel(toFloat(x_0),toFloat(y_0));
+
+            // If the line is horizontal or low-slope (dy == 0 or very small) 
+            // avoid storing the same point multiple times
+            if (dy != 0 && y_0 != prevY) {//
+                storePointT(x_0,y_0,u,v);
+                prevY = y_0;
+            }
+
+            if (P > 0){ // Threshold reached
+                y_0-=1; // Move one pixel down
+                P = P - 2*dx; //Reduce
+            }
+
+            P = P + 2*dy; //Increment the ERROR committed in each iteration
+            x_0+=offset;
+        }
+
+    } else { //Case 2: dx < dy | m > 1 (steep slope, line closer to Y-axis)
+
+        P = 2*dx - dy;
+        for (int i = 0; i < dy; i++){
+
+            linearInterpolationUV(x0,y0,u0,v0,x1,y1,u1,v1,toFloat(x_0),toFloat(y_0),&u,&v);
+            texColor =  color_textura(u,v);
+
+            // Normalize RGB values to [0,1]
+            r = texColor[0]/255.0f;
+            g = texColor[1]/255.0f;
+            b = texColor[2]/255.0f;
+
+            // Change the color
+            glColor3f(r,g,b);
+
+            putpixel(toFloat(x_0),toFloat(y_0));
+            storePointT(x_0,y_0,u,v);
+            
+            if (P > 0){
+                x_0+=offset;
+                P = P - 2*dy;
+            }
+
+            P = P + 2*dx; 
+            y_0-= 1;
+        }
+    }
+}
+
+// Scan Line Algorithm
+static void drawInternalPoints (float x0, float y0, float x1, float y1){
+
+    int x_0,y_0,x_1,y_1;
+    int i_x0,i_x1; //x of intersection points
+    float i_u0,i_v0,i_u1,i_v1; //intersection texture coordinates
+    float u,v;
+    float r,g,b; //Components Red - Green - Blue
+    int lastIndex; 
+    unsigned char *texColor;
+
+    //Convert to intengers  
+    x_0 = toInt(x0);
+    y_0 = toInt(y0); 
+    x_1 = toInt(x1);
+    y_1 = toInt(y1);
+
+    // Horizontal line or identical point: no need to draw since it's already rendered
+    if (y_0 == y_1) return;
+
+    for (int i = y_0-1;i >= y_1;i--){
+
+        if (intersectionTable[i].n < 2) continue;
+
+        // Identical points (probably one of the vertices)
+        if (intersectionTable[i].n == 2 && intersectionTable[i].x[0] == intersectionTable[i].x[1]) continue;
+
+        lastIndex = intersectionTable[i].n-1; 
+
+        // Prepare intersection points 
+        i_x0 = intersectionTable[i].x[0];
+        i_u0 = intersectionTable[i].u[0];
+        i_v0 = intersectionTable[i].v[0];
+        i_x1 = intersectionTable[i].x[lastIndex];
+        i_u1 = intersectionTable[i].u[lastIndex];
+        i_v1 = intersectionTable[i].v[lastIndex];
+
+        // Draw the horizontal span between both intersection points
+        for (int j = i_x0+1;j < i_x1;j++){
+            
+            linearInterpolationUV(toFloat(i_x0),i,i_u0,i_v0,toFloat(i_x1),i,i_u1,i_v1,toFloat(j),toFloat(i),&u,&v);
+            texColor =  color_textura(u,v);
+
+            // Normalize RGB values to [0,1]
+            r = texColor[0]/255.0f;
+            g = texColor[1]/255.0f;
+            b = texColor[2]/255.0f;
+
+            // Change the color
+            glColor3f(r,g,b);
+            
+            putpixel(toFloat(j),toFloat(i));
+        }
+        
+    }
+} 
 
 
 /* ti is the face index
@@ -220,10 +611,36 @@ p3ptr = &(optr->vertex_table[ind2].proedcoord);
 pixeldist = 2.0/(float)dimentsioa;
 
 
- // lehenengo hiru erpinak ordenatu behar ditut
-//TODO erpinak ordenatu!!!
-pgoiptr = p1ptr;    perdiptr = p2ptr;   pbeheptr = p3ptr;
-indg = ind0;        inde = ind1;        indb = ind2;
+ // lehenengo hiru erpinak ordenatu behar ditut 
+//TODO erpinak ordenatu!!! (segun la coordena Y)
+
+typedef struct {
+    point3 *p;  
+    int index;    
+} Vertex;
+
+Vertex vx[3];
+Vertex aux;
+
+// Add point and index of each vertex 
+vx[0].p = p1ptr; vx[0].index = ind0;
+vx[1].p = p2ptr; vx[1].index = ind1;
+vx[2].p = p3ptr; vx[2].index = ind2;    
+
+// Find the points v[0] > v[1] > v[2]
+if (vx[0].p->y < vx[1].p->y){
+    aux = vx[0]; vx[0] = vx[1]; vx[1] = aux;
+}
+if (vx[0].p->y < vx[2].p->y){
+    aux = vx[0]; vx[0] = vx[2]; vx[2] = aux;
+}
+if (vx[1].p->y < vx[2].p->y){
+    aux = vx[1]; vx[1] = vx[2]; vx[2] = aux;
+}
+
+// Assign ordered points
+pgoiptr = vx[0].p;   perdiptr = vx[1].p;  pbeheptr = vx[2].p; 
+indg = vx[0].index;  inde = vx[1].index;  indb = vx[2].index;
 
 
 r =optr->face_table[ti].rgb[0];
@@ -282,23 +699,46 @@ b= optr->face_table[ti].rgb[2];
     glVertex3f(p3ptr->x, p3ptr->y, p3ptr->z );
     glEnd(); 
 
-//TODO draw the lines of the polygon. Ertzak marraztu             
+
+if (lineak == 0) { //Empty triangles
+
+    //TODO draw the lines of the polygon. Ertzak marraztu 
+    
     // 1-2 ertza
-    
+    drawLine(pgoiptr->x,pgoiptr->y,perdiptr->x,perdiptr->y);
+
     // 1-3 ertza
-    
+    drawLine(pgoiptr->x,pgoiptr->y,pbeheptr->x,pbeheptr->y);
+
     // 2-3 ertza
-if (lineak == 1) return; 
-      
+    drawLine(perdiptr->x,perdiptr->y,pbeheptr->x,pbeheptr->y);
+
+    return;
+}
+
 // Segmentuz-segmentu marratzuko dut: 
+    
+    // Reset the intersection table to remove all data from the previous triangle
+    initTable(); 
 
 // TODO draw the segments of the triangle.
- 
+    
+    // 1-2 ertza
+    drawLineWT(pgoiptr->x,pgoiptr->y,optr->vertex_table[indg].u,optr->vertex_table[indg].v,perdiptr->x,perdiptr->y,optr->vertex_table[inde].u,optr->vertex_table[inde].v);
+           
+    // 1-3 ertza
+    drawLineWT(pgoiptr->x,pgoiptr->y,optr->vertex_table[indg].u,optr->vertex_table[indg].v,pbeheptr->x,pbeheptr->y,optr->vertex_table[indb].u,optr->vertex_table[indb].v);
+    
+    // 2-3 ertza
+    drawLineWT(perdiptr->x,perdiptr->y,optr->vertex_table[inde].u,optr->vertex_table[inde].v,pbeheptr->x,pbeheptr->y,optr->vertex_table[indb].u,optr->vertex_table[indb].v);
+
+    sortTable(); // for ScanLine
+
 // TODO draw segments from upper vertex until midle vertex- goiko eta erdikoaren arteko segmentuak
+    drawInternalPoints(pgoiptr->x,pgoiptr->y,perdiptr->x,perdiptr->y);
 
 // TODO draw segments from the midle to the lower vertex.
-  
- return;
+    drawInternalPoints(perdiptr->x,perdiptr->y,pbeheptr->x,pbeheptr->y);   
 }
 
 
@@ -809,10 +1249,17 @@ glutPostRedisplay();
 
 void viewportberria (int zabal, int garai)
 {
-if (zabal < garai)  dimentsioa = zabal;
+    if (zabal < garai)  dimentsioa = zabal;
     else  dimentsioa = garai;
-glViewport(0,0,dimentsioa,dimentsioa);
-printf("linea kopuru berria = %d\n",dimentsioa);
+
+    // Free the previous table if it existed    
+    if (intersectionTable != NULL) free(intersectionTable);
+
+    // Resize
+    intersectionTable = (ScanLine *) malloc(sizeof(ScanLine) * dimentsioa);
+
+    glViewport(0,0,dimentsioa,dimentsioa);
+    printf("linea kopuru berria = %d\n",dimentsioa);
 }
        
 int main(int argc, char** argv)
@@ -826,20 +1273,21 @@ int retval,i;
 	dimentsioa = 500;
 	glutInitWindowSize ( dimentsioa, dimentsioa );
 	glutInitWindowPosition ( 100, 100 );
-	glutCreateWindow( "KBG/GO praktika" );
+	glutCreateWindow( "KBG/GC praktika" );
 
 	glutDisplayFunc( marraztu );
 	glutKeyboardFunc( teklatua );
 	glutReshapeFunc( viewportberria);
-	/* we put the information of the texture in the buffer pointed by bufferra. The dimensions of the texture are loaded into dimx and dimy
+	//  we put the information of the texture in the buffer pointed by bufferra. The dimensions of the texture are loaded into dimx and dimy
         retval = load_ppm("testura.ppm", &bufferra, &dimx, &dimy);
+        //printf("Textura cargada: %d x %d\n", dimx, dimy);
         if (retval !=1) 
             {
             printf("Ez dago testuraren fitxategia (testura.ppm)\n");
             exit(-1);
             }
-             */ 
-    bufferra =0; dimx=0;dimy=0;
+    //placeholder (Yo)         
+    //bufferra =0; dimx=0;dimy=0;
 	glClearColor( 0.0f, 0.0f, 0.7f, 1.0f );
 	glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
         glEnable(GL_DEPTH_TEST); // activar el test de profundidad (Z-buffer)
@@ -890,7 +1338,7 @@ int retval,i;
                 { //sel_ptr->mptr->m[7] = 0.7;
                 }
             */                    
-            read_from_file("abioia-1+1.obj",&foptr);
+            read_from_file("triangles-1+1.obj",&foptr);
             }
         print_egoera();
 	glutMainLoop();
