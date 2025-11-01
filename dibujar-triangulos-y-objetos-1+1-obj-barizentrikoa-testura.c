@@ -395,7 +395,7 @@ void drawLine (float x0,float y0,float x1,float y1){
 }
 
 // drawLine function, but With Texture mapping and Scanline point storage
-void drawLineWT (float x0,float y0,float u0,float v0,float x1,float y1,float u1, float v1){
+void drawLineWT (float x0,float y0,float u0,float v0,float x1,float y1,float u1, float v1,object3d *optr){
     int x_0,y_0,x_1,y_1,dx,dy;
     int offset; //direction
     float P; //Parameter decision
@@ -422,6 +422,8 @@ void drawLineWT (float x0,float y0,float u0,float v0,float x1,float y1,float u1,
         of the triangle
     */
         for (int i = 0; i < dy; i++){
+            
+            if (optr->texturaduna){ //If the object has a texture, compute texture coords for each point
 
             linearInterpolationUV(x0,y0,u0,v0,x1,y1,u1,v1,toFloat(x_0),toFloat(y_0),&u,&v);
             texColor =  color_textura(u,v);
@@ -432,8 +434,8 @@ void drawLineWT (float x0,float y0,float u0,float v0,float x1,float y1,float u1,
             b = texColor[2]/255.0f;
 
             // Change the color
-            glColor3f(r,g,b);
-
+            glColor3f(r,g,b);   
+        }
             putpixel(toFloat(x_0),toFloat(y_0));
             storePointT(x_0,y_0,u,v);
             y_0-= 1; //Decrement y along the Y-axis
@@ -448,6 +450,8 @@ void drawLineWT (float x0,float y0,float u0,float v0,float x1,float y1,float u1,
         int prevY = -1;// keep track of last Y stored 
         for (int i = 0; i < dx; i++){  
 
+            if (optr->texturaduna){ //If the object has a texture, compute texture coords for each point
+
             linearInterpolationUV(x0,y0,u0,v0,x1,y1,u1,v1,toFloat(x_0),toFloat(y_0),&u,&v);
             texColor =  color_textura(u,v);
             
@@ -458,7 +462,7 @@ void drawLineWT (float x0,float y0,float u0,float v0,float x1,float y1,float u1,
 
             // Change the color 
             glColor3f(r,g,b);
-
+        }
             putpixel(toFloat(x_0),toFloat(y_0));
 
             // If the line is horizontal or low-slope (dy == 0 or very small) 
@@ -482,6 +486,8 @@ void drawLineWT (float x0,float y0,float u0,float v0,float x1,float y1,float u1,
         P = 2*dx - dy;
         for (int i = 0; i < dy; i++){
 
+            if (optr->texturaduna){ //If the object has a texture, compute texture coords for each point
+
             linearInterpolationUV(x0,y0,u0,v0,x1,y1,u1,v1,toFloat(x_0),toFloat(y_0),&u,&v);
             texColor =  color_textura(u,v);
 
@@ -492,7 +498,7 @@ void drawLineWT (float x0,float y0,float u0,float v0,float x1,float y1,float u1,
 
             // Change the color
             glColor3f(r,g,b);
-
+        }
             putpixel(toFloat(x_0),toFloat(y_0));
             storePointT(x_0,y_0,u,v);
             
@@ -508,7 +514,7 @@ void drawLineWT (float x0,float y0,float u0,float v0,float x1,float y1,float u1,
 }
 
 // Scan Line Algorithm
-static void drawInternalPoints (float x0, float y0, float x1, float y1){
+static void drawInternalPoints (float x0, float y0, float x1, float y1, object3d *optr){
 
     int x_0,y_0,x_1,y_1;
     int i_x0,i_x1; //x of intersection points
@@ -546,7 +552,9 @@ static void drawInternalPoints (float x0, float y0, float x1, float y1){
 
         // Draw the horizontal span between both intersection points
         for (int j = i_x0+1;j < i_x1;j++){
-            
+
+            if (optr->texturaduna){ //If the object has a texture, compute texture coords for each point
+
             linearInterpolationUV(toFloat(i_x0),i,i_u0,i_v0,toFloat(i_x1),i,i_u1,i_v1,toFloat(j),toFloat(i),&u,&v);
             texColor =  color_textura(u,v);
 
@@ -556,8 +564,8 @@ static void drawInternalPoints (float x0, float y0, float x1, float y1){
             b = texColor[2]/255.0f;
 
             // Change the color
-            glColor3f(r,g,b);
-            
+            glColor3f(r,g,b);   
+    }
             putpixel(toFloat(j),toFloat(i));
         }
         
@@ -643,27 +651,42 @@ pgoiptr = vx[0].p;   perdiptr = vx[1].p;  pbeheptr = vx[2].p;
 indg = vx[0].index;  inde = vx[1].index;  indb = vx[2].index;
 
 
-r =optr->face_table[ti].rgb[0];
-g= optr->face_table[ti].rgb[1];
-b= optr->face_table[ti].rgb[2];
-    glColor3ub(r,g,b);
+r =optr->face_table[ti].rgb[0]; //r:255
+g= optr->face_table[ti].rgb[1]; //g:255
+b= optr->face_table[ti].rgb[2]; //b:255
+glColor3ub(r,g,b); //White
 
  //TODO draw the three vertices. 3 erpinak marraztu
     glBegin( GL_POINTS ); 
 
     //glColor3ub(r,g,b);
+
+    /*In C:
+        (value ≠ 0) → True
+        (value == 0)→ False
+
+        Examples:
+        - !0 → 1 (True)
+        - !1 - 0 (False) 
+        - !25 → 0 (False) 
+        - !(-4) → 0 (False)
+
+        If atzeaurpegiada == 0 → !atzeaurpegiada (1) → True  (not back face | front face)
+        If atzeaurpegiada == 1 → !atzeaurpegiada (0) → False (back face)
+    */
+
     if(!atzeaurpegiada)
            {
-            if (optr->texturaduna) 
+            if (optr->texturaduna) //Object has texture → texturaduna == 1
                 {
-                colorv = color_textura(optr->vertex_table[ind0].u, optr->vertex_table[ind0].v);
-                glColor3ub(colorv[0],colorv[1],colorv[2]);
+                colorv = color_textura(optr->vertex_table[ind0].u, optr->vertex_table[ind0].v); //Vertex color
+                glColor3ub(colorv[0],colorv[1],colorv[2]); 
                 }
-              else
+              else //No texture
                 {            
-                glColor3ub(r,g,b);
-                }
+                glColor3ub(r,g,b); //White color (default) 
            }
+        }
     glVertex3f(p1ptr->x, p1ptr->y, p1ptr->z );
     if(!atzeaurpegiada)
            {
@@ -724,26 +747,26 @@ if (lineak == 0) { //Empty triangles
 // TODO draw the segments of the triangle.
     
     // 1-2 ertza
-    drawLineWT(pgoiptr->x,pgoiptr->y,optr->vertex_table[indg].u,optr->vertex_table[indg].v,perdiptr->x,perdiptr->y,optr->vertex_table[inde].u,optr->vertex_table[inde].v);
+    drawLineWT(pgoiptr->x,pgoiptr->y,optr->vertex_table[indg].u,optr->vertex_table[indg].v,perdiptr->x,perdiptr->y,optr->vertex_table[inde].u,optr->vertex_table[inde].v,optr);
            
     // 1-3 ertza
-    drawLineWT(pgoiptr->x,pgoiptr->y,optr->vertex_table[indg].u,optr->vertex_table[indg].v,pbeheptr->x,pbeheptr->y,optr->vertex_table[indb].u,optr->vertex_table[indb].v);
+    drawLineWT(pgoiptr->x,pgoiptr->y,optr->vertex_table[indg].u,optr->vertex_table[indg].v,pbeheptr->x,pbeheptr->y,optr->vertex_table[indb].u,optr->vertex_table[indb].v,optr);
     
     // 2-3 ertza
-    drawLineWT(perdiptr->x,perdiptr->y,optr->vertex_table[inde].u,optr->vertex_table[inde].v,pbeheptr->x,pbeheptr->y,optr->vertex_table[indb].u,optr->vertex_table[indb].v);
+    drawLineWT(perdiptr->x,perdiptr->y,optr->vertex_table[inde].u,optr->vertex_table[inde].v,pbeheptr->x,pbeheptr->y,optr->vertex_table[indb].u,optr->vertex_table[indb].v,optr);
 
     sortTable(); // for ScanLine
 
 // TODO draw segments from upper vertex until midle vertex- goiko eta erdikoaren arteko segmentuak
-    drawInternalPoints(pgoiptr->x,pgoiptr->y,perdiptr->x,perdiptr->y);
+    drawInternalPoints(pgoiptr->x,pgoiptr->y,perdiptr->x,perdiptr->y,optr);
 
 // TODO draw segments from the midle to the lower vertex.
-    drawInternalPoints(perdiptr->x,perdiptr->y,pbeheptr->x,pbeheptr->y);   
+    drawInternalPoints(perdiptr->x,perdiptr->y,pbeheptr->x,pbeheptr->y,optr);   
 }
 
 
 
-void dibujar_poligono(object3d *optr, int ti)
+void dibujar_poligono(object3d *optr, int ti)   
 {
 int i, ind0, ind1, ind2;
 int atzeaurpegiada;
@@ -761,7 +784,7 @@ ind2 = optr->face_table[ti].vertex_ind_table[2];
 optr->face_table[ti].rgb[0] = 255;
 optr->face_table[ti].rgb[1] = 255;
 optr->face_table[ti].rgb[2] = 255;
-atzeaurpegiada = 0;
+atzeaurpegiada = 0; //Initialize as not back-facing (default)
 // TODO atze-aurpegia?
 // atzeaurpegiada = ...
 if ((!atzearpegiakmarraztu)&&atzeaurpegiada)
@@ -1261,8 +1284,8 @@ void viewportberria (int zabal, int garai)
     glViewport(0,0,dimentsioa,dimentsioa);
     printf("linea kopuru berria = %d\n",dimentsioa);
 }
-       
-int main(int argc, char** argv)
+
+int main(int argc, char** argv) //argc: ARGument Count - argv: ARGument Vector 
 {
 int retval,i;
 
@@ -1312,8 +1335,8 @@ int retval,i;
         // TODO Argiak hasieratu
         
         if (argc>1) read_from_file(argv[1],&foptr);
-            else 
-            {
+        else 
+        {
             /*
             read_from_file("abioia-1+1.obj",&foptr);
             if (sel_ptr != 0) 
@@ -1337,9 +1360,12 @@ int retval,i;
             if (sel_ptr != 0) 
                 { //sel_ptr->mptr->m[7] = 0.7;
                 }
-            */                    
+            */
+
+            read_from_file("z-1+1.obj",&foptr);
+            read_from_file("abioia-1+1.obj",&foptr);
             read_from_file("triangles-1+1.obj",&foptr);
-            }
+        }
         print_egoera();
 	glutMainLoop();
 
