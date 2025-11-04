@@ -884,8 +884,9 @@ object3d *optr;
          }
        else
          {
-        /*
+        
          //printf("objektuaren matrizea...\n");
+         //Inicializar la Matrix de Transformacion de cada objeto
          optr->mptr = (mlist *)malloc(sizeof(mlist));
          for (i=0; i<16; i++) optr->mptr->m[i] =0;
          optr->mptr->m[0] = 1.0;
@@ -893,7 +894,7 @@ object3d *optr;
          optr->mptr->m[10] = 1.0;
          optr->mptr->m[15] = 1.0;
          optr->mptr->hptr = 0;
-         */
+        
          //printf("objektu edo kamera zerrendara doa informazioa...\n");
          optr->hptr = *fptrptr;
          *fptrptr = optr;
@@ -1321,7 +1322,7 @@ int retval,i;
         //glMatrixMode(GL_MODELVIEW);
         denak = 0;
         lineak =0;
-        objektuak = 0;
+        objektuak = 1;
         kamera = 0;
         foptr = 0;
         sel_ptr = 0;
