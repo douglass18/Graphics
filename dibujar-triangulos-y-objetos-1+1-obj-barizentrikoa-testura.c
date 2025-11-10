@@ -56,8 +56,20 @@ ScanLine *intersectionTable = NULL; // Dynamic Table [dimentsioa]
 
 // TODO  m = m1 * m2 
 // m1 bider m2 matrizeen biderketa egin eta m matrizean jaso. 
-void mxm(double *m, double*m1, double *m2)
+void mxm(double *m, double *m1, double *m2)
 {
+    // row x row m1
+    for (int i = 0; i < 4; i++){
+        
+        // col x col m2
+        for (int j = 0; j< 4; j++){
+            m [i*4 + j] = 0.0;// init pos
+
+            for (int k = 0; k < 4; k++){
+                m[i*4 + j] += m1[i*4 + k] * m2[4*k + j];// row elem x col elem  
+            }         
+        }
+    }
 }
 
 
@@ -71,14 +83,28 @@ void kamerari_aldaketa_sartu_esk(double m[16])
 {
 }
 
-// TODO
+// Transformacion Global: M = m * M
 void objektuari_aldaketa_sartu_ezk(double m[16])
 {
+    mlist *m_current = (mlist*)malloc(sizeof(mlist));
+
+    mxm(m_current->m,m,sel_ptr->mptr->m);
+
+    // Actualizar Model Matrix
+    m_current->hptr = sel_ptr->mptr;
+    sel_ptr->mptr = m_current;
 }
 
-// TODO
+// Transformacion Local: M = M * m
 void objektuari_aldaketa_sartu_esk(double m[16])
 {
+    mlist *m_current = (mlist*)malloc(sizeof(mlist));
+
+    mxm(m_current->m,sel_ptr->mptr->m,m);
+    
+    // Actualizar Model Matrix
+    m_current->hptr = sel_ptr->mptr;
+    sel_ptr->mptr = m_current;
 }
 
 
@@ -141,10 +167,25 @@ void mxv(double *res, double *m, double *v)
 // p puntuaren laugarren osagaia 1 dela suposatzen du.
 // matrizearen laugarren lerroaren arabera emaitzaren laugarren osagaia, w, ez bada 1, orduan bere baliokidea itzuli behar du: x/w, y/w eta z/w
 void mxp(point3 *pptr, double m[16], point3 p)
-{
-    pptr->x = p.x;
-    pptr->y = p.y;  
-    pptr->z = p.z;
+{   
+    double x,y,z,w;
+
+    // Matrix x Point
+    x = m[0]*p.x  + m[1]*p.y  + m[2]*p.z  + m[3];
+    y = m[4]*p.x  + m[5]*p.y  + m[6]*p.z  + m[7];
+    z = m[8]*p.x  + m[9]*p.y  + m[10]*p.z + m[11];
+    w = m[12]*p.x + m[13]*p.y + m[14]*p.z + m[15];
+
+    // Normalize
+    if (w != 0.0 && w != 1.0){
+        x /= w;
+        y /= w;
+        z /= w;
+    }
+    
+    pptr->x = x;
+    pptr->y = y;
+    pptr->z = z;
 }
 
 
