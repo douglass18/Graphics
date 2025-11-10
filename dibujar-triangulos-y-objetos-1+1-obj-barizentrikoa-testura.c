@@ -17,6 +17,11 @@
 //#include "cargar-triangulo.h"
 #include "obj.h"
 
+// -----------------
+// Global constants
+// -----------------
+#define PI 3.14159265358979323846
+    
 
 // testuraren informazioa
 // información de textura
@@ -139,7 +144,22 @@ return(lag+3*(indy*dimx+indx));
 
 }
 
+// Convert degrees to radians
+double degreesToRad (double degrees){
+    return degrees * PI / 180.0;
+}
 
+// 4X4 Identity Matrix
+void loadIdentity (double *m){
+
+    for (int i = 0; i < 16; i++){
+        m[i] = 0.0;
+    }
+    m[0]  = 1.0;
+    m[5]  = 1.0;
+    m[10] = 1.0;
+    m[15] = 1.0;
+}
 
 void print_matrizea16(double *m)
 {
@@ -199,17 +219,24 @@ int i;
 for (i = 0; i<optr->num_vertices; i++) 
     { 
     //TODO aldatu
-    // get viewer coordinates
-    optr->vertex_table[i].camcoord.x= optr->vertex_table[i].coord.x;
-    optr->vertex_table[i].camcoord.y= optr->vertex_table[i].coord.y;
-    optr->vertex_table[i].camcoord.z= optr->vertex_table[i].coord.z;
+    // Get viewer coordinates
+    point3 ptr;
+
+    // Transform each vertex using the object's accumulated model matrix
+    mxp(&ptr,optr->mptr->m,optr->vertex_table[i].coord);
+    
+    // Store transformed vertex position (in world/view coordinates)
+    optr->vertex_table[i].camcoord.x= ptr.x;
+    optr->vertex_table[i].camcoord.y= ptr.y;
+    optr->vertex_table[i].camcoord.z= ptr.z;
+
     // TODO aldatu
     // Get projected coordinates
     optr->vertex_table[i].proedcoord.x = optr->vertex_table[i].camcoord.x;
     optr->vertex_table[i].proedcoord.y = optr->vertex_table[i].camcoord.y;
     optr->vertex_table[i].proedcoord.z = optr->vertex_table[i].camcoord.z;
     // TODO aldatu
-    // get normal vector in camera coordinates
+    // Get normal vector in camera coordinates
     optr->vertex_table[i].Ncam[0] = optr->vertex_table[i].N[0];
     optr->vertex_table[i].Ncam[1] = optr->vertex_table[i].N[1];
     optr->vertex_table[i].Ncam[2] = optr->vertex_table[i].N[2];
@@ -960,20 +987,50 @@ object3d *optr;
 
 
 
-
 void x_aldaketa(int dir)
 {
+    double m_tr [16];
+    loadIdentity(m_tr);
 
 if (kamera == 0)// objektua aldatzen ari naiz
     {
-    if (aldaketa =='r')
+    if (aldaketa =='r') // rotate cos(5) = 0.99619469809174;  / / cos(5)
         {
-        // rotate cos(5) = 0.99619469809174;  // cos(5)
+        double angle = degreesToRad(5.0);
+        /* 
+        dir == 0: clockwise
+        dir == 1: counterclockwise
+        */
+        if (dir == 0) {
+            m_tr[5] = cos(angle);
+            m_tr[6] = -sin(angle);
+            m_tr[9] = sin(angle);
+            m_tr[10]= cos(angle);
+        }else{
+            m_tr[5] = cos(angle);
+            m_tr[6] = sin(angle);
+            m_tr[9] = -sin(angle);
+            m_tr[10]= cos(angle);
+            }
         }
-      else
-        {
-        // traslate: 0.02?
+    else
+        { // translate: 0.02
+        /*
+        dir == 0: left
+        dir == 1: right
+        */
+        if (dir == 0){
+            m_tr[3] = -0.02;
+        }else{
+            m_tr[3] = 0.02;
+            }
         }
+        
+    // Apply transformation (local or global)
+    if (ald_lokala == 1) 
+        objektuari_aldaketa_sartu_esk(m_tr);
+    else 
+        objektuari_aldaketa_sartu_ezk(m_tr);
     }
   else 
     if (kamera == 1) // kamera aldatzen ari naiz
@@ -1000,17 +1057,48 @@ if (kamera == 0)// objektua aldatzen ari naiz
 
 void y_aldaketa(int dir)
 {
+    double m_tr [16];
+    loadIdentity(m_tr);
 
 if (kamera == 0)// objektua aldatzen ari naiz
     {
-    if (aldaketa =='r')
+    if (aldaketa =='r') // rotate cos(5) = 0.99619469809174;  // cos(5)
         {
-        // rotate cos(5) = 0.99619469809174;  // cos(5)
+        double angle = degreesToRad(5.0);
+        /* 
+        dir == 0: clockwise
+        dir == 1: counterclockwise 
+        */
+        if (dir == 0) {
+            m_tr[0] = cos(angle);
+            m_tr[2] = sin(angle);
+            m_tr[8] = -sin(angle);
+            m_tr[10]= cos(angle);
+        }else{
+            m_tr[0] = cos(angle);
+            m_tr[2] = -sin(angle);
+            m_tr[8] = sin(angle);
+            m_tr[10]= cos(angle);
+            }
         }
-      else
-        {
-        // traslate: 0.02?
+    else
+        { // translate: 0.02
+        /*
+        dir == 0: Down
+        dir == 1: Up
+        */
+        if (dir == 0){
+            m_tr[7] = -0.02;
+        }else{
+            m_tr[7] = 0.02;
+            }
         }
+
+    // Apply transformation (local or global)
+    if (ald_lokala == 1) 
+        objektuari_aldaketa_sartu_esk(m_tr);
+    else   
+        objektuari_aldaketa_sartu_ezk(m_tr);
     }
   else 
     if (kamera == 1) // kamera aldatzen ari naiz
@@ -1038,16 +1126,41 @@ if (kamera == 0)// objektua aldatzen ari naiz
 
 void z_aldaketa(int dir)
 {
+    double m_tr [16];
+    loadIdentity(m_tr);
+
 if (kamera == 0) // objektuari aldaketa
     {
-    if (aldaketa =='r')
+    if (aldaketa =='r') // rotate cos(5) = 0.99619469809174;  // cos(5) 
         {
-        // rotate cos(5) = 0.99619469809174;  // cos(5) 
+        double angle = degreesToRad(5.0);
+        /* 
+        * dir == 0: clockwise
+        * dir == 1: counterclockwise
+        * 
+        * Property: 
+        *           -sin(θ) = sin(-θ)
+        *
+        * Changing the sign of the angle reverses the rotation direction:
+        *   θ > 0 → clockwise
+        *   θ < 0 → counterclockwise
+        */
+            m_tr[0] = cos(angle);
+            m_tr[1] =-sin((dir == 0) ? angle : -angle);
+            m_tr[4] = sin((dir == 0) ? angle : -angle);
+            m_tr[5] = cos(angle);   
         }
-      else
-        {
-        // translate
-        } 
+    else
+        { // translate: 0.02
+        /*
+        dir == 0: Backward
+        dir == 1: Forward
+        */
+            m_tr[11] = (dir == 0 ? -0.02 : 0.02);
+        }
+
+    // Apply transformation (local or global)
+    (ald_lokala == 1) ? objektuari_aldaketa_sartu_esk(m_tr) : objektuari_aldaketa_sartu_ezk(m_tr);
     }
   else   // kamerari aldaketa
     if (kamera == 1) 
@@ -1378,35 +1491,29 @@ int retval,i;
         
         if (argc>1) read_from_file(argv[1],&foptr);
         else 
-        {
-            /*
+        {   
+            read_from_file("abioia-1+1.obj",&foptr);
+            if (sel_ptr != 0) sel_ptr->mptr->m[3] = -1.0;
+                   
+            read_from_file("abioia-1+1.obj",&foptr);
+            if (sel_ptr != 0) sel_ptr->mptr->m[3] = 1.0;
+                   
             read_from_file("abioia-1+1.obj",&foptr);
             if (sel_ptr != 0) 
-                { //sel_ptr->mptr->m[3] = -1.0;
-                }   
+            {   
+                sel_ptr->mptr->m[7] = -0.4;
+                sel_ptr->mptr->m[11] = 0.5;
+            }
             read_from_file("abioia-1+1.obj",&foptr);
-            if (sel_ptr != 0) 
-                { //sel_ptr->mptr->m[3] = 1.0;
-                }   
+            if (sel_ptr != 0) sel_ptr->mptr->m[11] = -0.7;
+                        
             read_from_file("abioia-1+1.obj",&foptr);
-            if (sel_ptr != 0) 
-                { 
-                //sel_ptr->mptr->m[7] = -0.4;
-                //sel_ptr->mptr->m[11] = 0.5;
-                }   
-            read_from_file("abioia-1+1.obj",&foptr);
-            if (sel_ptr != 0) 
-                { //sel_ptr->mptr->m[11] = -0.7;
-                }        
-            read_from_file("abioia-1+1.obj",&foptr);
-            if (sel_ptr != 0) 
-                { //sel_ptr->mptr->m[7] = 0.7;
-                }
-            */
+            if (sel_ptr != 0) sel_ptr->mptr->m[7] = 0.7;
 
-            read_from_file("z-1+1.obj",&foptr);
+            
+            /*read_from_file("z-1+1.obj",&foptr);
             read_from_file("abioia-1+1.obj",&foptr);
-            read_from_file("triangles-1+1.obj",&foptr);
+            read_from_file("triangles-1+1.obj",&foptr);*/
         }
         print_egoera();
 	glutMainLoop();
