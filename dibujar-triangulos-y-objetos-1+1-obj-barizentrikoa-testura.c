@@ -1175,10 +1175,47 @@ if (kamera == 0) // objektuari aldaketa
       }
 }
 
-
+// Undo last transformation
 void undo()
-{
+{ 
+    // Nothing to undo
+    if (sel_ptr->mptr->hptr == NULL) return; 
+
+    mlist *prev = sel_ptr->mptr->hptr;
+
+    // Free current Model Matrix
+    free(sel_ptr->mptr);
+
+    // Restore Model Matrix
+    sel_ptr->mptr = prev;
 }
+
+// Delete selected object
+void supr()
+{
+    // Nothing to delete
+    if (foptr == NULL && sel_ptr == NULL) return;    
+
+    object3d *prev = NULL;
+    object3d *curr = foptr;
+
+    // Search for selected object
+    while(curr != sel_ptr){
+        prev = curr;
+        curr = prev->hptr;
+    }
+
+    // Remove from Linked List
+    if (prev == NULL) foptr = curr->hptr; // first or single element
+    else prev->hptr = curr->hptr;
+
+    // Free object memory
+    free(curr);
+
+    // Update
+    sel_ptr = foptr;
+}
+
 
 void kamera_objektuari_begira()
 {
@@ -1413,6 +1450,9 @@ switch(key)
                     }
                 }
             break;
+    case 127: // <SUPR>
+        supr();
+        break;  
 	case 27:  // <ESC>
 		exit( 0 );
 		break;
