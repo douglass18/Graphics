@@ -88,26 +88,26 @@ void kamerari_aldaketa_sartu_esk(double m[16])
 {
 }
 
-// Transformacion Global: M = m * M
+// Global Transformation: M = m * M
 void objektuari_aldaketa_sartu_ezk(double m[16])
 {
     mlist *m_current = (mlist*)malloc(sizeof(mlist));
 
     mxm(m_current->m,m,sel_ptr->mptr->m);
 
-    // Actualizar Model Matrix
+    // Update the Model Matrix
     m_current->hptr = sel_ptr->mptr;
     sel_ptr->mptr = m_current;
 }
 
-// Transformacion Local: M = M * m
+// Local Transformation: M = M * m
 void objektuari_aldaketa_sartu_esk(double m[16])
 {
     mlist *m_current = (mlist*)malloc(sizeof(mlist));
 
     mxm(m_current->m,sel_ptr->mptr->m,m);
     
-    // Actualizar Model Matrix
+    // Update the Model Matrix
     m_current->hptr = sel_ptr->mptr;
     sel_ptr->mptr = m_current;
 }
@@ -336,6 +336,9 @@ static void sortTable (){
 // Store an intersection point in our table
 static void storePointT (int X, int Y,float u,float v ){
 
+    //Point outside the frame
+    if (Y < 0 || Y >= dimentsioa) return;
+
     int idx = intersectionTable[Y].n;
 
     //Avoid exceeding maximum number of x's values (10)
@@ -477,6 +480,9 @@ void drawLineWT (float x0,float y0,float u0,float v0,float x1,float y1,float u1,
     x_1 = toInt(x1);
     y_1 = toInt(y1);
     
+    //Both vertices are completely outside the frame (either above or below)
+    if ((y_0 < 0 && y_1 < 0) || (y_0 >= dimentsioa && y_1 >= dimentsioa)) return;
+
     //Change in x and y
     dx = abs(x_1 - x_0); //Δx
     dy = abs(y_1 - y_0); //Δy
@@ -598,10 +604,16 @@ static void drawInternalPoints (float x0, float y0, float x1, float y1, object3d
     x_1 = toInt(x1);
     y_1 = toInt(y1);
 
+    // Both vertices are completely outside the frame (either above or below)
+    if ((y_0 < 0 && y_1 < 0) || (y_0 >= dimentsioa && y_1 >= dimentsioa)) return;
+
     // Horizontal line or identical point: no need to draw since it's already rendered
     if (y_0 == y_1) return;
 
     for (int i = y_0-1;i >= y_1;i--){
+
+        // Y coordinate is outside the frame
+        if (i < 0 || i >= dimentsioa) continue;
 
         if (intersectionTable[i].n < 2) continue;
 
@@ -953,15 +965,11 @@ object3d *optr;
        else
          {
         
-         //printf("objektuaren matrizea...\n");
-         //Inicializar la Matrix de Transformacion de cada objeto
-         optr->mptr = (mlist *)malloc(sizeof(mlist));
-         for (i=0; i<16; i++) optr->mptr->m[i] =0;
-         optr->mptr->m[0] = 1.0;
-         optr->mptr->m[5] = 1.0;
-         optr->mptr->m[10] = 1.0;
-         optr->mptr->m[15] = 1.0;
-         optr->mptr->hptr = 0;
+        //printf("objektuaren matrizea...\n");
+        //Initialize the Model Matrix
+        optr->mptr = (mlist *)malloc(sizeof(mlist));
+        loadIdentity(optr->mptr->m);
+        optr->mptr->hptr = 0;//no previous 
         
          //printf("objektu edo kamera zerrendara doa informazioa...\n");
          optr->hptr = *fptrptr;
