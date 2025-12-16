@@ -34,6 +34,7 @@ int indexx;
 //hiruki *triangulosptr;
 object3d *foptr;
 object3d *sel_ptr;
+object3d *cam_ptr;
 int denak;
 int lineak;
 int objektuak;
@@ -44,6 +45,10 @@ int objektuaren_ikuspegia;
 int paralelo;
 char fitxiz[100];
 int atzearpegiakmarraztu;
+int draw_normals;
+double zoom;
+double View[16];
+double Projection[16];
 
 typedef struct  
 {
@@ -51,7 +56,7 @@ typedef struct
     int x[10]; //points
     float u[10]; //corresponding u coordinates
     float v[10]; //corresponding v coordinates
-            
+       
 } ScanLine; //cut points
  
 
@@ -59,16 +64,16 @@ ScanLine *intersectionTable = NULL; // Dynamic Table [dimentsioa]
 
 
 
-// TODO  m = m1 * m2 
+// m = m1 * m2 
 // m1 bider m2 matrizeen biderketa egin eta m matrizean jaso. 
 void mxm(double *m, double *m1, double *m2)
 {
     // row x row m1
     for (int i = 0; i < 4; i++){
-        
+
         // col x col m2
-        for (int j = 0; j< 4; j++){
-            m [i*4 + j] = 0.0;// init pos
+        for (int j = 0; j < 4; j++){
+            m[i*4 + j] = 0.0;// init pos
 
             for (int k = 0; k < 4; k++){
                 m[i*4 + j] += m1[i*4 + k] * m2[4*k + j];// row elem x col elem  
@@ -77,23 +82,36 @@ void mxm(double *m, double *m1, double *m2)
     }
 }
 
-
-// TODO
+// Global Transformation: Mcam = m * Mcam
 void kamerari_aldaketa_sartu_ezk(double *m)
 {
+    mlist *m_current = (mlist*) malloc(sizeof(mlist));
+
+    mxm(m_current->m, m, cam_ptr->mptr->m);
+
+    // Update the Camera Matrix
+    m_current->hptr = cam_ptr->mptr;
+    cam_ptr->mptr = m_current;
 }
 
-// TODO
+// Local Transformation: Mcam = Mcam * m
 void kamerari_aldaketa_sartu_esk(double m[16])
 {
+    mlist *m_current = (mlist*) malloc(sizeof(mlist));
+
+    mxm(m_current->m, cam_ptr->mptr->m, m);
+
+    // Update the Camera Matrix
+    m_current->hptr = cam_ptr->mptr;
+    cam_ptr->mptr = m_current;
 }
 
 // Global Transformation: M = m * M
 void objektuari_aldaketa_sartu_ezk(double m[16])
 {
-    mlist *m_current = (mlist*)malloc(sizeof(mlist));
+    mlist *m_current = (mlist*) malloc(sizeof(mlist));
 
-    mxm(m_current->m,m,sel_ptr->mptr->m);
+    mxm(m_current->m, m, sel_ptr->mptr->m);
 
     // Update the Model Matrix
     m_current->hptr = sel_ptr->mptr;
@@ -103,9 +121,9 @@ void objektuari_aldaketa_sartu_ezk(double m[16])
 // Local Transformation: M = M * m
 void objektuari_aldaketa_sartu_esk(double m[16])
 {
-    mlist *m_current = (mlist*)malloc(sizeof(mlist));
+    mlist *m_current = (mlist*) malloc(sizeof(mlist));
 
-    mxm(m_current->m,sel_ptr->mptr->m,m);
+    mxm(m_current->m, sel_ptr->mptr->m, m);
     
     // Update the Model Matrix
     m_current->hptr = sel_ptr->mptr;
@@ -113,35 +131,33 @@ void objektuari_aldaketa_sartu_esk(double m[16])
 }
 
 
-
-// TODO given u,v get the color pointer
+// Given u,v get the color pointer
 unsigned char *color_textura(float u, float v)
 {
-int indx,indy;
-char * lag;
-//printf("texturan...%x\n",bufferra);
-//TODO get the desplacement for indx and indy
+    int indx,indy;
+    char * lag;
+    //printf("texturan...%x\n",bufferra);
+    //Get the desplacement for indx and indy
 
-// negative values?
-if (u < 0) {u = 0;}
-if (v < 0) {v = 0;}
+    // negative values?
+    if (u < 0) {u = 0;}
+    if (v < 0) {v = 0;}
 
-// values greater than 1?
-if (u > 1) {u = 1;}
-if (u > 1) {u = 1;}
+    // values greater than 1?
+    if (u > 1) {u = 1;}
+    if (u > 1) {u = 1;}
 
-// Convert to texel coordinates
-indx= (int) (u * (dimx-1) + 0.5f);
-indy= (int) (v * (dimy-1) + 0.5f);
+    // Convert to texel coordinates
+    indx = (int) (u * (dimx-1) + 0.5f);
+    indy = (int) (v * (dimy-1) + 0.5f);
 
-// Invert V (PPM)
-indy = (dimy-1) - indy;
+    // Invert V (PPM)
+    indy = (dimy-1) - indy;
 
-// Points to the first texel (R)
-lag = (unsigned char *)bufferra;
-//printf("irtetera %x\n",lag[indy*dimx+indx]);
-return(lag+3*(indy*dimx+indx));
-
+    // Points to the first texel (R)
+    lag = (unsigned char *)bufferra;
+    //printf("irtetera %x\n",lag[indy*dimx+indx]);
+    return (lag + 3*(indy*dimx+indx));
 }
 
 // Convert degrees to radians
@@ -152,37 +168,72 @@ double degreesToRad (double degrees){
 // 4X4 Identity Matrix
 void loadIdentity (double *m){
 
-    for (int i = 0; i < 16; i++){
-        m[i] = 0.0;
-    }
-    m[0]  = 1.0;
-    m[5]  = 1.0;
-    m[10] = 1.0;
-    m[15] = 1.0;
+        for (int i = 0; i < 16; i++){
+            m[i] = 0.0;
+        }
+        m[0]  = 1.0;
+        m[5]  = 1.0;
+        m[10] = 1.0;
+        m[15] = 1.0;
 }
 
 void print_matrizea16(double *m)
 {
-int i;
+    int i;
 
-for (i = 0;i<4;i++)
-   printf("%lf, %lf, %lf, %lf\n",m[i*4],m[i*4+1],m[i*4+2], m[i*4+3]);
+    for (i = 0;i<4;i++)
+    printf("%lf, %lf, %lf, %lf\n",m[i*4],m[i*4+1],m[i*4+2], m[i*4+3]);
+}
+
+// Scalar Product
+float dot(vector3 u, vector3 v){
+    return u.x * v.x + 
+           u.y * v.y + 
+           u.z * v.z; 
+}
+
+// Cross Product
+vector3 cross(vector3 u, vector3 v){
+    vector3 o;
+
+    o.x = u.y * v.z - u.z * v.y;
+    o.y = u.z * v.x - u.x * v.z;
+    o.z = u.x * v.y - u.y * v.x;
+
+    return o;
+}
+
+// Normalize returns a vector with the same direction as its parameter, v, but with length 1 
+vector3 normalize(vector3 v){
+    vector3 u;
+
+    float magnitude = sqrt(dot(v,v)); // v · v = ||v|| * ||v||
+
+    if (magnitude != 0){
+        u.x = v.x / magnitude;
+        u.y = v.y / magnitude;
+        u.z = v.z / magnitude;
+    }
+
+    return u;
 }
 
 
-// TODO  res = m * v 
+// res = m * v 
 // v bektoreari m matrizea bidertu eta res erakusleak adierazten duen bektorean jaso. 
 // v bektorearen eta res emaitzaren laugarren osagaia 0 dela suposatzen du.
+// Essential for correct normals, light directions, and any non-point vector
 void mxv(double *res, double *m, double *v)
 {
-    res[0] = v[0];
-    res[1] = v[1];
-    res[2] = v[2];
+    // Transform direction vector (ignores translation — w = 0)
+    res[0] = m[0] * v[0] + m[1] * v[1] + m[2] * v[2];
+    res[1] = m[3] * v[0] + m[4] * v[1] + m[5] * v[2];
+    res[2] = m[6] * v[0] + m[7] * v[1] + m[8] * v[2];
 }
 
 
 
-// TODO  pptr = m * p 
+// pptr = m * p 
 // ppuntuari m matrizea bidertu eta pptr erakulseak adierazten duen puntuan jaso. 
 // p puntuaren laugarren osagaia 1 dela suposatzen du.
 // matrizearen laugarren lerroaren arabera emaitzaren laugarren osagaia, w, ez bada 1, orduan bere baliokidea itzuli behar du: x/w, y/w eta z/w
@@ -195,73 +246,307 @@ void mxp(point3 *pptr, double m[16], point3 p)
     y = m[4]*p.x  + m[5]*p.y  + m[6]*p.z  + m[7];
     z = m[8]*p.x  + m[9]*p.y  + m[10]*p.z + m[11];
     w = m[12]*p.x + m[13]*p.y + m[14]*p.z + m[15];
-
-    // Normalize
-    if (w != 0.0 && w != 1.0){
+    
+   /* Perspective division: convert from Clip Space to NDC [-1,1]
+    * Only perform division if the point is in front of the camera (w > 0)
+    * This corresponds to points with negative Z in eye space (Z+ check → w > 0)
+    * Points behind the camera (w < 0) are not divided and will be rejected later by frustum culling (|x| or |y| > 1)
+    * w = 0 → would cause division by zero → ERROR
+    */
+    if (w != 1.0 && w > 0.0f){
         x /= w;
         y /= w;
         z /= w;
     }
-    
+
     pptr->x = x;
     pptr->y = y;
     pptr->z = z;
+}
+
+// Model View = View * Model
+void modelview_lortu(double *m1, double *m2)
+{
+    mxm(m1, View, m2);
+}
+
+// View = Mcam⁻¹
+void mesa_lortu(double* M){
+
+    loadIdentity(View);
+
+    // Rx Ry Rz -<R,e>
+    View[0] = M[0];
+    View[1] = M[4];
+    View[2] = M[8];
+    View[3] = -dot((vector3){M[0],M[4],M[8]},(vector3){M[3],M[7],M[11]});
+
+    // Ux Uy Uz -<U,e>
+    View[4] = M[1];
+    View[5] = M[5];
+    View[6] = M[9];
+    View[7] = -dot((vector3){M[1],M[5],M[9]},(vector3){M[3],M[7],M[11]});
+
+    // Dx Dy Dz -<D,e>
+    View[8] = M[2];
+    View[9] = M[6];
+    View[10]= M[10];
+    View[11]= -dot((vector3){M[2],M[6],M[10]},(vector3){M[3],M[7],M[11]});
+
+    // 0 0 0 1   
+}
+
+/* Calculates the Normal Matrix: NormalMatrix = transpose(inverse(ModelView)) 
+ * Only uses the upper-left 3x3 part of ModelView (rotation + scale)
+ * Correctly transforms normals to view space for accurate lighting and back-face culling */
+void get_normal_matrix(double *in, double *out){
+
+    // Extract 3x3 submatrix from ModelView
+    double m[9] = {
+        in[0], in[1], in[2],
+        in[4], in[5], in[6],
+        in[8], in[9], in[10]
+    };
+    
+    // Compute determinant of the 3x3 matrix
+    double det = m[0]*(m[4]*m[8] - m[5]*m[7]) - m[1]*(m[3]*m[8] - m[5]*m[6]) + m[2]*(m[3]*m[7] - m[4]*m[6]);
+
+    // Safety check for singular matrix
+    if (fabs(det) < 1e-12f){
+        // Return identity matrix as fallback
+        out[0]=1; out[1]=0; out[2]=0;
+        out[3]=0; out[4]=1; out[5]=0;
+        out[6]=0; out[7]=0; out[8]=1;
+        
+        return;
+    }
+
+    // Compute the 9 cofactors (cofactor matrix C)
+    double C[9];
+
+    C[0] = +(m[4]*m[8] - m[5]*m[7]);
+    C[1] = -(m[3]*m[8] - m[5]*m[6]);
+    C[2] = +(m[3]*m[7] - m[4]*m[6]);
+    C[3] = -(m[1]*m[8] - m[2]*m[7]);
+    C[4] = +(m[0]*m[8] - m[2]*m[6]);
+    C[5] = -(m[0]*m[7] - m[1]*m[6]);
+    C[6] = +(m[1]*m[5] - m[2]*m[4]);
+    C[7] = -(m[0]*m[5] - m[2]*m[3]);
+    C[8] = +(m[0]*m[4] - m[1]*m[3]);
+
+    // The adjoin of A is the transpose of the cofactor matrix: adj(A) = Cᵀ
+    double adj_A[9];
+    
+    adj_A[0] = C[0];  adj_A[1] = C[3];  adj_A[2] = C[6];
+    adj_A[3] = C[1];  adj_A[4] = C[4];  adj_A[5] = C[7];
+    adj_A[6] = C[2];  adj_A[7] = C[5];  adj_A[8] = C[8];
+
+    // The inverse of A is: A⁻¹ = (1/det(A)) × adj(A)
+    double inv_det = 1.0 / det;
+    double inv[9];
+
+    inv[0] = inv_det * adj_A[0];  inv[1] = inv_det * adj_A[1];  inv[2] = inv_det * adj_A[2];
+    inv[3] = inv_det * adj_A[3];  inv[4] = inv_det * adj_A[4];  inv[5] = inv_det * adj_A[5];
+    inv[6] = inv_det * adj_A[6];  inv[7] = inv_det * adj_A[7];  inv[8] = inv_det * adj_A[8];
+
+    // The Normal Matrix is the transpose of the inverse: NormalMatrix = (A⁻¹)ᵀ
+    out[0] = inv[0]; out[1] = inv[3]; out[2] = inv[6];
+    out[3] = inv[1]; out[4] = inv[4]; out[5] = inv[7];
+    out[6] = inv[2]; out[7] = inv[5]; out[8] = inv[8];
 }
 
 
 // TODO objektuaren erpinek eta bektore normalek kameraren erreferentzi-sisteman dituzten koordenatuak lortu
 void kam_ikuspegia_lortu(object3d *optr)
 {
-int i;
+    int i;
+    double modelView[16];
+    double normalMatrix[9];
 
-// TODO  get point in the viewer coordenate-system and project it
-// TODO get the vectors in camera system-
-for (i = 0; i<optr->num_vertices; i++) 
-    { 
-    //TODO aldatu
-    // Get viewer coordinates
-    point3 ptr;
+    // Model View = View * Model
+    modelview_lortu(modelView, optr->mptr->m);
 
-    // Transform each vertex using the object's accumulated model matrix
-    mxp(&ptr,optr->mptr->m,optr->vertex_table[i].coord);
+    // Normal Matrix = transpose(inverse(ModelView))
+    get_normal_matrix(modelView, normalMatrix);
     
-    // Store transformed vertex position (in world/view coordinates)
-    optr->vertex_table[i].camcoord.x= ptr.x;
-    optr->vertex_table[i].camcoord.y= ptr.y;
-    optr->vertex_table[i].camcoord.z= ptr.z;
+    // Get point in the viewer coordenate-system and project it
+    // TODO get the vectors in camera system-
+    for (i = 0; i<optr->num_vertices; i++) 
+    { 
+        point3 ptr;
 
-    // TODO aldatu
-    // Get projected coordinates
-    optr->vertex_table[i].proedcoord.x = optr->vertex_table[i].camcoord.x;
-    optr->vertex_table[i].proedcoord.y = optr->vertex_table[i].camcoord.y;
-    optr->vertex_table[i].proedcoord.z = optr->vertex_table[i].camcoord.z;
-    // TODO aldatu
-    // Get normal vector in camera coordinates
-    optr->vertex_table[i].Ncam[0] = optr->vertex_table[i].N[0];
-    optr->vertex_table[i].Ncam[1] = optr->vertex_table[i].N[1];
-    optr->vertex_table[i].Ncam[2] = optr->vertex_table[i].N[2];
+        // Get Viewer Coordinates: View * Model * Vertex
+        mxp(&ptr, modelView, optr->vertex_table[i].coord);
+        
+        // Store the vertex position in View Space
+        optr->vertex_table[i].camcoord.x= ptr.x;
+        optr->vertex_table[i].camcoord.y= ptr.y;
+        optr->vertex_table[i].camcoord.z= ptr.z;    
+
+        // Get projected coordinates: Projection * View * Model * Vertex
+        mxp(&ptr, Projection, optr->vertex_table[i].camcoord);
+        
+        // Store the vertex position in Clip Space
+        optr->vertex_table[i].proedcoord.x = ptr.x;
+        optr->vertex_table[i].proedcoord.y = ptr.y;
+        optr->vertex_table[i].proedcoord.z = ptr.z;
+    
+        // TODO aldatu - Iluminacion
+        // Get normal vector in camera coordinates
+        optr->vertex_table[i].Ncam[0] = optr->vertex_table[i].N[0];
+        optr->vertex_table[i].Ncam[1] = optr->vertex_table[i].N[1];
+        optr->vertex_table[i].Ncam[2] = optr->vertex_table[i].N[2];
     }
-      
-// TODO get the face normal in the viewer coordenate-system 
-for (i = 0; i<optr->num_faces; i++) 
+    
+    // Get the face normal in the viewer coordenate-system
+    for (i = 0; i<optr->num_faces; i++) 
     {
-    // TODO aldatu
-    optr->face_table[i].Ncam[0] = optr->face_table[i].N[0];
-    optr->face_table[i].Ncam[1] = optr->face_table[i].N[1];
-    optr->face_table[i].Ncam[2] = optr->face_table[i].N[2];
+        double n_eye[3]; 
+        mxv(n_eye, normalMatrix, optr->face_table[i].N);
+
+        vector3 n = normalize((vector3){n_eye[0], n_eye[1], n_eye[2]});
+
+        // Store the face normal in Eye Space
+        optr->face_table[i].Ncam[0] = n.x;
+        optr->face_table[i].Ncam[1] = n.y;
+        optr->face_table[i].Ncam[2] = n.z;
     }
 }
 
+// Orthographic Projection Matrix
+void Ortho(double left, double right, double bottom, double top, double near_val, double far_val){
 
+        loadIdentity(Projection);
 
-void modelview_lortu(double *m1, double *m2)
-{
+        Projection[0] = 2 / (right - left);
+        Projection[3] = -(right + left) / (right - left);
+
+        Projection[5] = 2 / (top - bottom);
+        Projection[7] = -(top + bottom) / (top - bottom);
+        
+        Projection[10]= 2 / (far_val - near_val);
+        Projection[11]= -(far_val + near_val) / (far_val - near_val);
+
+        // 0 0 0 1
 }
 
-void mesa_lortu(double* M) 
-{
+// Perspective Projection Matrix
+void Perspective(double left, double right, double bottom, double top, double near_val, double far_val){
+
+    loadIdentity(Projection);
+
+    Projection[0] = (2 * near_val) / (right - left);
+    Projection[2] = (right + left) / (right - left);
+
+    Projection[5] = (2 * near_val) / (top - bottom);
+    Projection[6] = (top + bottom) / (top - bottom);
+
+    Projection[11]= -(far_val + near_val) / (far_val - near_val);
+    Projection[10]= -(2*far_val*near_val) / (far_val - near_val);
+
+    // 0 0 -1 0
+    Projection[14] = -1;
+    Projection[15] =  0;
 }
 
+/* Frustum culling in NDC: returns 1 if the triangle (i0,i1,i2) is completely
+ * outside the [-1,1]³ view volume. All vertices must lie on the same side
+ * of any frustum plane to be culled */
+static int frustumCulling(int i0, int i1, int i2, object3d *optr){
+
+    point3 v0 = optr->vertex_table[i0].proedcoord;
+    point3 v1 = optr->vertex_table[i1].proedcoord;
+    point3 v2 = optr->vertex_table[i2].proedcoord;
+
+    // All three vertices outside the same frustum plane → triangle is culled
+    int out_left   = (v0.x <= -1.0 && v1.x <= -1.0 && v2.x <= -1.0);
+    int out_right  = (v0.x >=  1.0 && v1.x >=  1.0 && v2.x >=  1.0);
+    int out_bottom = (v0.y <= -1.0 && v1.y <= -1.0 && v2.y <= -1.0);
+    int out_top    = (v0.y >=  1.0 && v1.y >=  1.0 && v2.y >=  1.0);
+    int out_near   = (v0.z <= -1.0 && v1.z <= -1.0 && v2.z <= -1.0);
+    int out_far    = (v0.z >=  1.0 && v1.z >=  1.0 && v2.z >=  1.0);
+
+    return out_left || out_right || out_bottom || out_top || out_near || out_far;
+}
+
+/* Determine if a face is back-facing:
+ * N is the face normal already transformed to camera/eye space
+ * optr->vertex_table[].camcoord are vertex positions in camera/eye space
+ * paralelo == 0 => Perspective; paralelo == 1 => Orthographic
+ * Returns 1 if back-facing, 0 if front-facing */
+static int isBackface(int i0, int i1, int i2, double *N, object3d *optr){
+
+    // Orthographic default view direction (camera looks along -Z)
+    vector3 cameraRay = {0,0,-1};
+    
+    if(paralelo == 0){// For Perspective Projection we build a ray from the camera (origin) to the face center
+
+        // Get the three vertices of the triangle in camera/eye space
+        point3 v0 = optr->vertex_table[i0].camcoord;
+        point3 v1 = optr->vertex_table[i1].camcoord;
+        point3 v2 = optr->vertex_table[i2].camcoord;
+
+        // Compute triangle centroid (approximate face center) in eye space
+        vector3 centerf = {
+            (v0.x + v1.x + v2.x)/3,
+            (v0.y + v1.y + v2.y)/3,
+            (v0.z + v1.z + v2.z)/3
+        };
+
+        // For Perspective the camera is at the origin {0,0,0} in eye space, so the ray
+        // from the camera to the face center is simply the center coordinates
+        cameraRay.x = centerf.x;
+        cameraRay.y = centerf.y;
+        cameraRay.z = centerf.z;
+    }
+
+    // Face normal in camera/eye space
+    vector3 normalf = {N[0], N[1], N[2]};
+    
+    // Back-face culling test:
+    // If the dot product between the view direction and the face normal is positive,
+    // the normal points away from the camera → back-face
+    return (dot(cameraRay,normalf) > 0.0); 
+}
+
+/**
+ * Draws the normal vector of a polygon face as a line
+ * The normal is drawn starting from one vertex of the face
+ * and extending in the direction of the face normal
+**/
+void draw_face_normal(int i0, double *N, object3d *optr){
+   
+        // Starting point: projected coordinates of the selected vertex (already in clip space)
+        point3 p_start_proj = {
+            optr->vertex_table[i0].proedcoord.x,
+            optr->vertex_table[i0].proedcoord.y,
+            optr->vertex_table[i0].proedcoord.z
+        };
+
+        // Starting point in view (camera) space - needed to offset along the normal
+        point3 p_start_cam = {
+            optr->vertex_table[i0].camcoord.x,
+            optr->vertex_table[i0].camcoord.y,
+            optr->vertex_table[i0].camcoord.z
+        };
+       
+        // End point in view space: offset from start along the face normal direction
+        point3 p_end_cam = {
+            p_start_cam.x + N[0],
+            p_start_cam.y + N[1],
+            p_start_cam.z + N[2]
+        };
+
+        // Project the normal end point to clip space using the current projection matrix
+        point3 p_end_proj;
+        mxp(&p_end_proj, Projection, p_end_cam);
+        
+        // Draw the normal as a line segment
+        glBegin(GL_LINES); 
+            glVertex3f(p_start_proj.x, p_start_proj.y, p_start_proj.z);
+            glVertex3f(p_end_proj.x, p_end_proj.y, p_end_proj.z);
+        glEnd();     
+}
 
 void argien_kalkulua_egin(object3d *optr, int ti)
 {
@@ -666,75 +951,75 @@ static void drawInternalPoints (float x0, float y0, float x1, float y1, object3d
 */
 void dibujar_triangulo(object3d *optr, int ti, int i1, int atzeaurpegiada)
 {
-point3 *pgoiptr, *pbeheptr, *perdiptr;
-float x, y, z, u, v, nx, ny;
-float luz, l12, l23, l13, d1v23, d2v13, d3v12;
-float lerrotartea,pixeldist;
-float alfa, beta, gamma;
-float goieragina, beheeragina, erdieragina;
-float *luzeptr,*erdiptr, *motzptr;
-float  luzeluz, paraleloarenluzera;
-int luzeanparalelokop, barnekop;
-int lerrokop,i,j;
-int ind0, ind1, ind2, indg, inde, indb;
-point3 *p1ptr, *p2ptr, *p3ptr;
-double *Nkam;
-double aldaketa,baldaketa;
-float x1,x2, y1;
-unsigned char r,g,b;
-unsigned char *colorv;
+    point3 *pgoiptr, *pbeheptr, *perdiptr;
+    float x, y, z, u, v, nx, ny;
+    float luz, l12, l23, l13, d1v23, d2v13, d3v12;
+    float lerrotartea,pixeldist;
+    float alfa, beta, gamma;
+    float goieragina, beheeragina, erdieragina;
+    float *luzeptr,*erdiptr, *motzptr;
+    float  luzeluz, paraleloarenluzera;
+    int luzeanparalelokop, barnekop;
+    int lerrokop,i,j;
+    int ind0, ind1, ind2, indg, inde, indb;
+    point3 *p1ptr, *p2ptr, *p3ptr;
+    double *Nkam;
+    double aldaketa,baldaketa;
+    float x1,x2, y1;
+    unsigned char r,g,b;
+    unsigned char *colorv;
 
-// triangeluaren hiru erpinak hartu
-ind0 = optr->face_table[ti].vertex_ind_table[0];
-ind1 = optr->face_table[ti].vertex_ind_table[i1];
-ind2 = optr->face_table[ti].vertex_ind_table[i1+1];
+    // triangeluaren hiru erpinak hartu
+    ind0 = optr->face_table[ti].vertex_ind_table[0];
+    ind1 = optr->face_table[ti].vertex_ind_table[i1];
+    ind2 = optr->face_table[ti].vertex_ind_table[i1+1];
 
 
-p1ptr = &(optr->vertex_table[ind0].proedcoord);
-p2ptr = &(optr->vertex_table[ind1].proedcoord);
-p3ptr = &(optr->vertex_table[ind2].proedcoord);
+    p1ptr = &(optr->vertex_table[ind0].proedcoord);
+    p2ptr = &(optr->vertex_table[ind1].proedcoord);
+    p3ptr = &(optr->vertex_table[ind2].proedcoord);
        
-// Puntuz puntu marraztuko dut dena!!     
-// hasteko bi pixelen arteko distantzia gure munduan (-1 eta 1 arteko munduan) ze distantzia den kalkulatuko dut       
-pixeldist = 2.0/(float)dimentsioa;
+    // Puntuz puntu marraztuko dut dena!!     
+    // hasteko bi pixelen arteko distantzia gure munduan (-1 eta 1 arteko munduan) ze distantzia den kalkulatuko dut       
+    pixeldist = 2.0/(float)dimentsioa;
 
 
- // lehenengo hiru erpinak ordenatu behar ditut 
-//TODO erpinak ordenatu!!! (segun la coordena Y)
+    // lehenengo hiru erpinak ordenatu behar ditut 
+    // Erpinak ordenatu!!! (according to the Y coordinate)
 
-typedef struct {
-    point3 *p;  
-    int index;    
-} Vertex;
+    typedef struct {
+        point3 *p;  
+        int index;    
+    } Vertex;
 
-Vertex vx[3];
-Vertex aux;
+    Vertex vx[3];
+    Vertex aux;
 
-// Add point and index of each vertex 
-vx[0].p = p1ptr; vx[0].index = ind0;
-vx[1].p = p2ptr; vx[1].index = ind1;
-vx[2].p = p3ptr; vx[2].index = ind2;    
+    // Add point and index of each vertex 
+    vx[0].p = p1ptr; vx[0].index = ind0;
+    vx[1].p = p2ptr; vx[1].index = ind1;
+    vx[2].p = p3ptr; vx[2].index = ind2;    
 
-// Find the points v[0] > v[1] > v[2]
-if (vx[0].p->y < vx[1].p->y){
-    aux = vx[0]; vx[0] = vx[1]; vx[1] = aux;
-}
-if (vx[0].p->y < vx[2].p->y){
-    aux = vx[0]; vx[0] = vx[2]; vx[2] = aux;
-}
-if (vx[1].p->y < vx[2].p->y){
-    aux = vx[1]; vx[1] = vx[2]; vx[2] = aux;
-}
+    // Find the points v[0] > v[1] > v[2]
+    if (vx[0].p->y < vx[1].p->y){
+        aux = vx[0]; vx[0] = vx[1]; vx[1] = aux;
+    }
+    if (vx[0].p->y < vx[2].p->y){
+        aux = vx[0]; vx[0] = vx[2]; vx[2] = aux;
+    }
+    if (vx[1].p->y < vx[2].p->y){
+        aux = vx[1]; vx[1] = vx[2]; vx[2] = aux;
+    }
 
-// Assign ordered points
-pgoiptr = vx[0].p;   perdiptr = vx[1].p;  pbeheptr = vx[2].p; 
-indg = vx[0].index;  inde = vx[1].index;  indb = vx[2].index;
+    // Assign ordered points
+    pgoiptr = vx[0].p;   perdiptr = vx[1].p;  pbeheptr = vx[2].p; 
+    indg = vx[0].index;  inde = vx[1].index;  indb = vx[2].index;
 
 
-r =optr->face_table[ti].rgb[0]; //r:255
-g= optr->face_table[ti].rgb[1]; //g:255
-b= optr->face_table[ti].rgb[2]; //b:255
-glColor3ub(r,g,b); //White
+    r =optr->face_table[ti].rgb[0]; 
+    g= optr->face_table[ti].rgb[1];
+    b= optr->face_table[ti].rgb[2]; 
+    glColor3ub(r,g,b); 
 
  //TODO draw the three vertices. 3 erpinak marraztu
     glBegin( GL_POINTS ); 
@@ -765,9 +1050,9 @@ glColor3ub(r,g,b); //White
               else //No texture
                 {            
                 glColor3ub(r,g,b); //White color (default) 
-           }
+                }
         }
-    glVertex3f(p1ptr->x, p1ptr->y, p1ptr->z );
+    glVertex3f(p1ptr->x, p1ptr->y, p1ptr->z);
     if(!atzeaurpegiada)
            {
             if (optr->texturaduna) 
@@ -803,29 +1088,28 @@ glColor3ub(r,g,b); //White
     glEnd(); 
 
 
-if (lineak == 0) { //Empty triangles
+    if (lineak == 0) { //Empty triangles
 
-    //TODO draw the lines of the polygon. Ertzak marraztu 
-    
-    // 1-2 ertza
-    drawLine(pgoiptr->x,pgoiptr->y,perdiptr->x,perdiptr->y);
+        // Draw the lines of the polygon. Ertzak marraztu
 
-    // 1-3 ertza
-    drawLine(pgoiptr->x,pgoiptr->y,pbeheptr->x,pbeheptr->y);
+        // 1-2 ertza
+        drawLine(pgoiptr->x,pgoiptr->y,perdiptr->x,perdiptr->y);
 
-    // 2-3 ertza
-    drawLine(perdiptr->x,perdiptr->y,pbeheptr->x,pbeheptr->y);
+        // 1-3 ertza
+        drawLine(pgoiptr->x,pgoiptr->y,pbeheptr->x,pbeheptr->y);
 
-    return;
-}
+        // 2-3 ertza
+        drawLine(perdiptr->x,perdiptr->y,pbeheptr->x,pbeheptr->y);
+
+        return;
+    }
 
 // Segmentuz-segmentu marratzuko dut: 
     
     // Reset the intersection table to remove all data from the previous triangle
     initTable(); 
 
-// TODO draw the segments of the triangle.
-    
+// Draw the segments of the triangle.    
     // 1-2 ertza
     drawLineWT(pgoiptr->x,pgoiptr->y,optr->vertex_table[indg].u,optr->vertex_table[indg].v,perdiptr->x,perdiptr->y,optr->vertex_table[inde].u,optr->vertex_table[inde].v,optr);
            
@@ -837,10 +1121,10 @@ if (lineak == 0) { //Empty triangles
 
     sortTable(); // for ScanLine
 
-// TODO draw segments from upper vertex until midle vertex- goiko eta erdikoaren arteko segmentuak
+// Draw segments from upper vertex until midle vertex- goiko eta erdikoaren arteko segmentuak
     drawInternalPoints(pgoiptr->x,pgoiptr->y,perdiptr->x,perdiptr->y,optr);
 
-// TODO draw segments from the midle to the lower vertex.
+// Draw segments from the midle to the lower vertex.
     drawInternalPoints(perdiptr->x,perdiptr->y,pbeheptr->x,pbeheptr->y,optr);   
 }
 
@@ -848,38 +1132,59 @@ if (lineak == 0) { //Empty triangles
 
 void dibujar_poligono(object3d *optr, int ti)   
 {
-int i, ind0, ind1, ind2;
-int atzeaurpegiada;
-double * Nkam;
+    int i, ind0, ind1, ind2;
+    int atzeaurpegiada;
+    double * Nkam;
 
-if (ti >= optr->num_faces) return;
-// lehenengo hiru erpinekin kalkulatuko dut ikusgaitasuna.
-ind0 = optr->face_table[ti].vertex_ind_table[0];
-ind1 = optr->face_table[ti].vertex_ind_table[1];
-ind2 = optr->face_table[ti].vertex_ind_table[2];
+    if (ti >= optr->num_faces) return;
+    // Lehenengo hiru erpinekin kalkulatuko dut ikusgaitasuna.
+    ind0 = optr->face_table[ti].vertex_ind_table[0];
+    ind1 = optr->face_table[ti].vertex_ind_table[1];
+    ind2 = optr->face_table[ti].vertex_ind_table[2];
 
-// TODO erabaki marraztu behar den ala ez: ikuste bolumenetik kanpokoak ez marraztu
+    // === FRUSTUM CULLING ===
+    if (frustumCulling(ind0, ind1, ind2, optr))
+        return; 
+    
+    // === BACKFACE CULLING ===
+    Nkam = optr->face_table[ti].Ncam;
 
-// TODO poligonoaren kolorea zein da? oraingoz zuria.
-optr->face_table[ti].rgb[0] = 255;
-optr->face_table[ti].rgb[1] = 255;
-optr->face_table[ti].rgb[2] = 255;
-atzeaurpegiada = 0; //Initialize as not back-facing (default)
-// TODO atze-aurpegia?
-// atzeaurpegiada = ...
-if ((!atzearpegiakmarraztu)&&atzeaurpegiada)
+    // TODO poligonoaren kolorea zein da? oraingoz zuria.
+    optr->face_table[ti].rgb[0] = 255;
+    optr->face_table[ti].rgb[1] = 255;
+    optr->face_table[ti].rgb[2] = 255;
+    
+    // Check if this face is back-face or front face
+    atzeaurpegiada = isBackface(ind0, ind1, ind2, Nkam, optr);
+
+    if (atzeaurpegiada) // atze-aurpegia?
     {
-    // Back culling...
-    return;
+        // Paint back-faces red
+        optr->face_table[ti].rgb[0] = 255;
+        optr->face_table[ti].rgb[1] = 0;
+        optr->face_table[ti].rgb[2] = 0;
     }
-if (optr->texturaduna == 0) 
-        {
-        // TODO erpin bakoitzaren kolorea kalkulatu: argien, kameraren eta objektuaren orientazioaren arabera.
+
+    // If back-face culling is enabled and this is a back-face, skip drawing (otherwise back-faces are drawn in red)
+    if ((!atzearpegiakmarraztu) && atzeaurpegiada)
+    {
+        // Back culling...
+        return;
+    }
+
+    // Optional visualization of face normals (debug)
+    if (draw_normals)   
+        draw_face_normal(ind0, Nkam, optr);
+
+    if (optr->texturaduna == 0) 
+    {
+        // TODO erpin bakoitzaren kolorea kalkulatu: argien, kameraren eta objektuaren orientazioaren arabera
         argien_kalkulua_egin(optr, ti);
-        }
-// honaino iritsi bada bere triangelu guztiak marraztu behar ditut
-for (i = 1; i<(optr->face_table[ti].num_vertices-1); i++)  // triangeluka marraztu: 4 erpinekin bi triangelu, bostekin 3...
-    dibujar_triangulo(optr, ti, i, atzeaurpegiada);
+    }
+
+    // Honaino iritsi bada bere triangelu guztiak marraztu behar ditut
+    for (i = 1; i<(optr->face_table[ti].num_vertices-1); i++)  // triangeluka marraztu: 4 erpinekin bi triangelu, bostekin 3...
+        dibujar_triangulo(optr, ti, i, atzeaurpegiada);
 }
 
 
@@ -887,63 +1192,102 @@ for (i = 1; i<(optr->face_table[ti].num_vertices-1); i++)  // triangeluka marraz
 
 static void marraztu(void)
 {
-float u,v;
-int i,j;
-object3d *auxptr;
-double Fokudir[3];
+    float u,v;
+    int i,j;
+    object3d *auxptr;
+    double Fokudir[3];
 
 
-  // marrazteko objektuak behar dira
-  // no se puede dibujar sin objetos
-if (foptr ==0) return;
+    // marrazteko objektuak behar dira
+    // no se puede dibujar sin objetos
+    if (foptr ==0) return;
 
-// clear viewport...
-if (objektuak == 1) glClear( GL_DEPTH_BUFFER_BIT|GL_COLOR_BUFFER_BIT );
-    else 
-      {
-      if (denak == 0) glClear( GL_DEPTH_BUFFER_BIT|GL_COLOR_BUFFER_BIT );
-      }
-//TODO Ikuslearen edo kameraren erreferentzia-sistemara pasatzen duen matrizea lortu
-
-//TODO argiek kameraren ikuspegian duten informazioa eguneratu (bai kokapenak, bai direkzioak)
-
-if (objektuak == 1)
-    {
-    if (denak == 1)
+    // clear viewport...
+    if (objektuak == 1) glClear( GL_DEPTH_BUFFER_BIT|GL_COLOR_BUFFER_BIT );
+        else 
         {
-        //printf("objektuak marraztera\n");
-        for (auxptr =foptr; auxptr != 0; auxptr = auxptr->hptr)
+        if (denak == 0) glClear( GL_DEPTH_BUFFER_BIT|GL_COLOR_BUFFER_BIT );
+        }
+
+    //Ikuslearen edo kameraren erreferentzia-sistemara pasatzen duen matrizea lortu
+    // View Matrix
+    if (objektuaren_ikuspegia == 1)  
+        mesa_lortu(sel_ptr->mptr->m); // Object Viewpoint ('C' key)
+
+    else 
+        mesa_lortu(cam_ptr->mptr->m); // Camera Viewpoint
+
+    // Projection Matrix
+    if (paralelo == 1) Ortho(-1.0*zoom, 1.0*zoom, -1.0*zoom, 1.0*zoom, 0.0, -100.0);
+    
+    else Perspective(-0.25*zoom, 0.25*zoom, -0.25*zoom, 0.25*zoom, 0.35, 10.0); 
+
+    //TODO argiek kameraren ikuspegian duten informazioa eguneratu (bai kokapenak, bai direkzioak)
+
+    if (objektuak == 1)
+        {
+        if (denak == 1)
+            {
+            //printf("objektuak marraztera\n");
+            for (auxptr =foptr; auxptr != 0; auxptr = auxptr->hptr)
+                {
+                // TODO objektua kamerak nola ikusten duen adierazi objektuaren egituan bertan.
+                kam_ikuspegia_lortu(auxptr);
+                //printf("objektua kameraren ikuspegian daukat\n");
+                for (i =0; i < auxptr->num_faces; i++)
+                    {
+                    dibujar_poligono(auxptr,i);
+                    }
+                }
+            }
+        else
             {
             // TODO objektua kamerak nola ikusten duen adierazi objektuaren egituan bertan.
-            kam_ikuspegia_lortu(auxptr);
-            //printf("objektua kameraren ikuspegian daukat\n");
-            for (i =0; i < auxptr->num_faces; i++)
+            kam_ikuspegia_lortu(sel_ptr);
+            for (i =0; i < sel_ptr->num_faces; i++)
                 {
-                dibujar_poligono(auxptr,i);
+                dibujar_poligono(sel_ptr,i);
                 }
             }
         }
-      else
+    else
         {
         // TODO objektua kamerak nola ikusten duen adierazi objektuaren egituan bertan.
         kam_ikuspegia_lortu(sel_ptr);
-        for (i =0; i < sel_ptr->num_faces; i++)
-            {
-            dibujar_poligono(sel_ptr,i);
-            }
+        dibujar_poligono(sel_ptr,indexx);
         }
-    }
-  else
-    {
-    // TODO objektua kamerak nola ikusten duen adierazi objektuaren egituan bertan.
-    kam_ikuspegia_lortu(sel_ptr);
-    dibujar_poligono(sel_ptr,indexx);
-    }
-glFlush();
+    glFlush();
 }
 
-void obj_normalak_kalkulatu(object3d *optr)
-{
+// Compute a normalized Normal vector for each face of the object
+void obj_normalak_kalkulatu(object3d *optr){ 
+    int i;
+
+    for (i = 0; i < optr->num_faces; i++){
+
+        if (optr->face_table[i].num_vertices < 3) continue; // No Triangle
+        
+        int ind0 = optr->face_table[i].vertex_ind_table[0];
+        int ind1 = optr->face_table[i].vertex_ind_table[1];
+        int ind2 = optr->face_table[i].vertex_ind_table[2];
+
+        // Get first 3 vertices of the face
+        point3 v0 = optr->vertex_table[ind0].coord;
+        point3 v1 = optr->vertex_table[ind1].coord;
+        point3 v2 = optr->vertex_table[ind2].coord;
+
+        // Vectors
+        vector3 u = {v1.x - v0.x, v1.y - v0.y, v1.z - v0.z};
+        vector3 v = {v2.x - v0.x, v2.y - v0.y, v2.z - v0.z};
+
+        // Face Normal
+        vector3 normal = normalize(cross(u,v));
+        
+        // Store
+        optr->face_table[i].N[0] = normal.x;   
+        optr->face_table[i].N[1] = normal.y;
+        optr->face_table[i].N[2] = normal.z;
+    }   
 }
 
 
@@ -966,7 +1310,7 @@ object3d *optr;
          {
         
         //printf("objektuaren matrizea...\n");
-        //Initialize the Model Matrix
+        // Initialize the Model Matrix
         optr->mptr = (mlist *)malloc(sizeof(mlist));
         loadIdentity(optr->mptr->m);
         optr->mptr->hptr = 0;//no previous 
@@ -993,6 +1337,133 @@ object3d *optr;
      //printf("datuak irakurrita\n");
 }
 
+/*Initializes a new Camera object and sets its initial position in the world
+  (the camera is initialized with an identity rotation (orthogonal basis))*/
+void initCamera(point3 eye){
+
+    // Allocate memory for the camera object structure
+    cam_ptr = (object3d*) malloc(sizeof(object3d));
+
+    // Camera does not need vertices or faces
+    cam_ptr->num_vertices = 0;
+    cam_ptr->num_faces = 0;
+    cam_ptr->vertex_table = NULL;
+    cam_ptr->face_table = NULL; 
+
+    // Initialize Camera Matrix
+    cam_ptr->mptr = (mlist*) malloc(sizeof(mlist));
+    loadIdentity(cam_ptr->mptr->m);
+
+    // Set camera position
+    cam_ptr->mptr->m[3] = eye.x;
+    cam_ptr->mptr->m[7] = eye.y;
+    cam_ptr->mptr->m[11]= eye.z;
+
+    cam_ptr->mptr->hptr = NULL;
+}
+
+// Insert the new matrix at the head of the camera matrix stack/list
+void update_cam_ptr(double *m){
+
+    mlist *m_current = (mlist*) malloc(sizeof(mlist));
+
+    for (int i = 0; i < 16; i++) m_current->m[i] = m[i];
+
+    // Update the Camera Matrix
+    m_current->hptr = cam_ptr->mptr;
+    cam_ptr->mptr = m_current;
+}
+
+// Sets the camera's orientation to point directly at the selected object (LookAt)
+void kamera_objektuari_begira()
+{
+   if (cam_ptr == 0) return;
+
+    point3 cam_pos = {cam_ptr->mptr->m[3],cam_ptr->mptr->m[7],cam_ptr->mptr->m[11]};    
+    point3 center  = {sel_ptr->mptr->m[3],sel_ptr->mptr->m[7],sel_ptr->mptr->m[11]};
+
+    // Direction
+    vector3 direction = normalize((vector3){center.x - cam_pos.x,center.y - cam_pos.y,center.z - cam_pos.z});
+
+    // Up (default)
+    vector3 up = {0,1,0};
+
+    if (fabs(dot(direction,up)) > 0.99){
+        up = (vector3){0,0,1}; // Avoid gimbal block
+    }
+
+    // Right: Dir x Up
+    vector3 right = normalize(cross(direction,up));
+
+    // Up (computed)
+    up = cross(right,direction);
+
+    // Mcam Structure
+    double Mcam[16];
+    
+    Mcam[0] = right.x;  Mcam[1] = up.x;  Mcam[2] = -direction.x;  Mcam[3] = cam_pos.x;   
+    Mcam[4] = right.y;  Mcam[5] = up.y;  Mcam[6] = -direction.y;  Mcam[7] = cam_pos.y; 
+    Mcam[8] = right.z;  Mcam[9] = up.z;  Mcam[10]= -direction.z;  Mcam[11]= cam_pos.z; 
+    Mcam[12]= 0;        Mcam[13]= 0;     Mcam[14]= 0;             Mcam[15]= 1; 
+
+    update_cam_ptr(Mcam);
+}
+
+// Constructs a rotation matrix using Rodrigues' Rotation Formula : MR(α)
+void RodriguesRotationMatrix(double *m, double angle, vector3 axis){
+
+    loadIdentity(m);
+
+    // Axis components
+    double x = axis.x;
+    double y = axis.y;
+    double z = axis.z;
+
+    // Rodrigues rotation formula (3x3 block)
+    m[0] = cos(angle) + (1 - cos(angle)) * (x*x);     m[1] = (1 - cos(angle)) * x * y - z * sin(angle); m[2] = (1 - cos(angle)) * x * z + y * sin(angle);
+
+    m[4] = (1 - cos(angle)) * x * y + z * sin(angle); m[5] = cos(angle) + (1 - cos(angle)) * (y*y);     m[6] = (1 - cos(angle)) * y * z - x * sin(angle);
+    
+    m[8] = (1 - cos(angle)) * x * z - y * sin(angle); m[9] = (1 - cos(angle)) * y * z + x * sin(angle); m[10] = cos(angle) + (1 - cos(angle)) * (z*z);
+}
+
+/* Builds two translation matrices: one to move the object to the origin (M_-at) 
+ * and one to restore it to its original position (M_at) */
+void translationMatrix(double *m1, double *m2){
+    
+    loadIdentity(m1); 
+    loadIdentity(m2);
+
+    // M_at
+    m1[3] = sel_ptr->mptr->m[3];
+    m1[7] = sel_ptr->mptr->m[7];
+    m1[11]= sel_ptr->mptr->m[11];
+
+    // M_-at
+    m2[3] = -sel_ptr->mptr->m[3];
+    m2[7] = -sel_ptr->mptr->m[7];
+    m2[11]= -sel_ptr->mptr->m[11];
+}
+
+/* Builds a rotation matrix that rotates the camera around a selected object
+ *
+ * The final matrix Mr is computed as:
+ *   Mr = M_at * MR(α) * M_-at
+ * 
+ * This allows the camera to orbit around the object without moving the object itself 
+ */ 
+void orbitRotationMatrix(double *m, double angle, vector3 axis){
+    double Mr[16], MR[16], Mat[16], M_at[16], Maux[16];
+
+    RodriguesRotationMatrix(MR,angle,axis);
+    translationMatrix(Mat,M_at);
+
+    mxm(Maux, Mat, MR);
+    mxm(Mr, Maux, M_at);
+
+    // Copy result
+    for (int i = 0; i < 16; i++) m[i] = Mr[i];
+}
 
 
 void x_aldaketa(int dir)
@@ -1011,13 +1482,13 @@ if (kamera == 0)// objektua aldatzen ari naiz
         */
         if (dir == 0) {
             m_tr[5] = cos(angle);
-            m_tr[6] = -sin(angle);
-            m_tr[9] = sin(angle);
+            m_tr[6] = sin(angle);
+            m_tr[9] = -sin(angle);
             m_tr[10]= cos(angle);
         }else{
             m_tr[5] = cos(angle);
-            m_tr[6] = sin(angle);
-            m_tr[9] = -sin(angle);
+            m_tr[6] = -sin(angle);
+            m_tr[9] = sin(angle);
             m_tr[10]= cos(angle);
             }
         }
@@ -1040,25 +1511,37 @@ if (kamera == 0)// objektua aldatzen ari naiz
     else 
         objektuari_aldaketa_sartu_ezk(m_tr);
     }
-  else 
-    if (kamera == 1) // kamera aldatzen ari naiz
-      {
+
+else if (kamera == 1) // kamera aldatzen ari naiz
+    {
+        double angle = degreesToRad(5.0 * (dir == 0 ? -1 : 1));
+
       if (ald_lokala == 1)// hegaldi moduan ezker/eskuin begiratu (y-rekiko biraketa)
         {
-        // TODO hegan egin
+            vector3 axisY = {0,1,0}; // World Y-axis for stable yaw rotation (left/right)
+
+            RodriguesRotationMatrix(m_tr, angle, axisY);
+
+            // Apply local transformation to camera (post-multiply)
+            kamerari_aldaketa_sartu_esk(m_tr);
         }
-      else // analisi moduan
+      else // analisi moduan aukeratutako objektua analizatu eskuinerago edo ezkerreragotik (Y biratuz!)
         {
         if (sel_ptr !=0)
             {
-             // aukeratutako objektua analizatu eskuinerago edo ezkerreragotik (biratuz!)
-             }
+            vector3 axisY = normalize((vector3){cam_ptr->mptr->m[1],cam_ptr->mptr->m[5],cam_ptr->mptr->m[9]});
+
+            orbitRotationMatrix(m_tr, angle, axisY);
+
+            // M_cam' = M_at * MR(α) * M_-at * Mcam
+            kamerari_aldaketa_sartu_ezk(m_tr);
+            }
         }
-      }
-    else   // argiak aldatzen
-      {
-      // eguzkia biratu edo bonbila mugitu
-      }
+    }
+else // argiak aldatzen
+    {
+    // eguzkia biratu edo bonbila mugitu
+    }
 }
 
 
@@ -1079,13 +1562,13 @@ if (kamera == 0)// objektua aldatzen ari naiz
         */
         if (dir == 0) {
             m_tr[0] = cos(angle);
-            m_tr[2] = sin(angle);
-            m_tr[8] = -sin(angle);
+            m_tr[2] = -sin(angle);
+            m_tr[8] = sin(angle);
             m_tr[10]= cos(angle);
         }else{
             m_tr[0] = cos(angle);
-            m_tr[2] = -sin(angle);
-            m_tr[8] = sin(angle);
+            m_tr[2] = sin(angle);
+            m_tr[8] = -sin(angle);
             m_tr[10]= cos(angle);
             }
         }
@@ -1108,25 +1591,37 @@ if (kamera == 0)// objektua aldatzen ari naiz
     else   
         objektuari_aldaketa_sartu_ezk(m_tr);
     }
-  else 
-    if (kamera == 1) // kamera aldatzen ari naiz
-      {
-      if (ald_lokala == 1)// hegaldi moduan ezker/eskuin begiratu (y-rekiko biraketa)
+
+else if (kamera == 1) // kamera aldatzen ari naiz
+    {
+        double angle = degreesToRad(5.0 * (dir == 0 ? -1 : 1));
+
+      if (ald_lokala == 1)// hegaldi moduan gora/behera begiratu (x-rekiko biraketa)
         {
-        // TODO hegan egin
+            vector3 axisX = {1,0,0}; // World X-axis for stable pitch rotation (up/down)
+
+            RodriguesRotationMatrix(m_tr, angle, axisX);
+
+            // Apply local transformation to camera (post-multiply)
+            kamerari_aldaketa_sartu_esk(m_tr);
         }
-      else // analisi moduan
+      else // analisi moduan aukeratutako objektua analizatu goragotik edo beheragotik (X biratuz!) 
         {
         if (sel_ptr !=0)
-            {
-             // aukeratutako objektua analizatu goragotik edo beheragotik (biratuz!)
-             }
+            {     
+            vector3 axisX = normalize((vector3){cam_ptr->mptr->m[0],cam_ptr->mptr->m[4],cam_ptr->mptr->m[8]}); 
+                
+            orbitRotationMatrix(m_tr, angle, axisX);
+
+            // M_cam' = M_at * MR(α) * M_-at * Mcam
+            kamerari_aldaketa_sartu_ezk(m_tr);
+            }
         }
-      }
-    else   // argiak aldatzen
-      {
-      // eguzkia biratu edo bonbila mugitu
-      }
+    }
+else // argiak aldatzen
+    {
+    // eguzkia biratu edo bonbila mugitu
+    }
 }
 
 
@@ -1150,12 +1645,12 @@ if (kamera == 0) // objektuari aldaketa
         *           -sin(θ) = sin(-θ)
         *
         * Changing the sign of the angle reverses the rotation direction:
-        *   θ > 0 → clockwise
-        *   θ < 0 → counterclockwise
+        *   θ > 0 → counterclockwise
+        *   θ < 0 → clockwise
         */
             m_tr[0] = cos(angle);
-            m_tr[1] =-sin((dir == 0) ? angle : -angle);
-            m_tr[4] = sin((dir == 0) ? angle : -angle);
+            m_tr[1] =-sin((dir == 0) ? -angle : angle);
+            m_tr[4] = sin((dir == 0) ? -angle : angle);
             m_tr[5] = cos(angle);   
         }
     else
@@ -1170,18 +1665,66 @@ if (kamera == 0) // objektuari aldaketa
     // Apply transformation (local or global)
     (ald_lokala == 1) ? objektuari_aldaketa_sartu_esk(m_tr) : objektuari_aldaketa_sartu_ezk(m_tr);
     }
-  else   // kamerari aldaketa
-    if (kamera == 1) 
-      {
-      // hegaldi moduan beti aurrera edo atzera mugitu kamera.
-      // analisi moduan traslazioa egin nahi bada objektura gerturatu (pasa gabe!! distantzia kontrolatu) edo urrutiratu
-      // analisi moduan biraketa (roll)
-      }
-    else   // argiak aldatzen
-      {
-      // bonbilla mugitu munduan edo eguzkia biratu?
-      }
+
+else if (kamera == 1) // kamerari aldaketa 
+    {
+      if (ald_lokala == 1)// hegaldi moduan beti aurrera edo atzera mugitu kamera: Free Dolly
+        {
+            // Translate the camera along its local Z axis (where it is looking)
+            // dir == 0 → move backward , dir == 1 → move forward
+            m_tr[11] = (dir == 0 ? 0.02 : -0.02);
+
+            // Apply local transformation to camera (post-multiply)
+            kamerari_aldaketa_sartu_esk(m_tr); 
+        }
+      else // analisi moduan
+        {
+        if (aldaketa == 'r') // analisi moduan biraketa (roll)
+            {
+            double angle = degreesToRad(5.0 * (dir == 0 ? -1 : 1)); // Increase angle to reduce lag
+
+            vector3 axisZ = normalize((vector3){cam_ptr->mptr->m[2],cam_ptr->mptr->m[6],cam_ptr->mptr->m[10]});
+            
+            orbitRotationMatrix(m_tr, angle, axisZ);
+            
+            // M_cam' = M_at * MR(α) * M_-at * Mcam
+            kamerari_aldaketa_sartu_ezk(m_tr);
+            } 
+        else // analisi moduan traslazioa egin nahi bada objektura gerturatu (pasa gabe!! distantzia kontrolatu) edo urrutiratu: Restricted Dolly
+            {
+               // Vector from the camera position to the selected object's position
+                vector3 camToObject = {
+                    sel_ptr->mptr->m[3] - cam_ptr->mptr->m[3],
+                    sel_ptr->mptr->m[7] - cam_ptr->mptr->m[7],
+                    sel_ptr->mptr->m[11]- cam_ptr->mptr->m[11]
+                };
+                
+                // Calculate Euclidean distance (magnitude) from camera to object
+                // We use magnitude because the camera might be rotated (e.g., side view), so checking only 'Z' is insufficient
+                double cam_dist = sqrt(camToObject.x*camToObject.x + camToObject.y*camToObject.y + camToObject.z*camToObject.z);
+
+                // Safety radius (object radius + margin) to prevent the camera crossing the object
+                double min_dist = 1.2;
+
+                // Determine if the movement is safe:
+                // If dir == 0 (Moving Backward/Away): Always allowed
+                // If dir == 1 (Moving Forward/Closer): Allowed ONLY if current distance > safety limit
+                if (dir == 0 || (dir == 1 && cam_dist > min_dist)){                        
+                    // Translate the camera along its local Z axis (where it is looking)
+                    m_tr[11] = (dir == 0 ? 0.02 : -0.02);
+
+                    // Apply local transformation to camera (post-multiply)
+                    kamerari_aldaketa_sartu_esk(m_tr); 
+                }
+            }
+        }
+    }
+else // argiak aldatzen
+    {
+    // bonbilla mugitu munduan edo eguzkia biratu?
+    }
 }
+
 
 // Undo last transformation
 void undo()
@@ -1223,32 +1766,33 @@ void supr()
     // Update
     sel_ptr = foptr;
 }
-
-
-void kamera_objektuari_begira()
+    
+void print_egoera ()
 {
-}
+    if (kamera == 0)
+        {
+        if (ald_lokala == 1) printf("\nobjektua aldatzen ari zara, (aldaketa lokala)\n");
+            else printf("\nobjektua aldatzen ari zara, (aldaketa globala)\n");
+        }
+    if (kamera == 1) 
+        {
+        if (ald_lokala == 1) printf("\nkamera aldatzen ari zara hegaldi moduan\n");
+            else printf("\nkamera aldatzen ari zara analisi-moduan\n");
+        }
+    if (kamera == 2)
+        {
+        printf("\nargiak aldatzen ari zara\n");
+        }
+    if (aldaketa=='t') printf("Traslazioa dago aktibatuta\n");
+        else printf("Biraketak daude aktibatuta\n");
 
+    if (objektuaren_ikuspegia) printf("objektuaren ikuspuntua erakusten ari zara (`C` sakatu kamerarenera pasatzeko)\n");
 
-void print_egoera()
-{
-if (kamera == 0)
-    {
-    if (ald_lokala == 1) printf("\nobjektua aldatzen ari zara, (aldaketa lokala)\n");
-        else printf("\nobjektua aldatzen ari zara, (aldaketa globala)\n");
-    }
-if (kamera == 1) 
-    {
-    if (ald_lokala == 1) printf("\nkamera aldatzen ari zara hegaldi moduan\n");
-        else printf("\nkamera aldatzen ari zara analisi-moduan\n");
-    }
-if (kamera == 2)
-    {
-    printf("\nargiak aldatzen ari zara\n");
-    }
-if (aldaketa=='t') printf("Traslazioa dago aktibatuta\n");
-    else printf("Biraketak daude aktibatuta\n");
-if (objektuaren_ikuspegia) printf("objektuaren ikuspuntua erakusten ari zara (`C` sakatu kamerarenera pasatzeko)\n");
+    if (atzearpegiakmarraztu) printf("atzeaurpegiak marrazten ari zara (b tekla)\n");
+        else printf("atzeaurpegirik ez duzu marraztuko (b tekla)\n");
+        
+    if (draw_normals) printf("bektore normalak marrazten ari zara (n tekla)\n");
+        else printf("bektore normalik ez duzu marraztuko (n tekla)\n");
 }
 
 // This function will be called whenever the user pushes one key
@@ -1340,7 +1884,19 @@ switch(key)
 		aldaketa = 'r';
 		printf("biraketak\n");
 		break;
-	case 'n':
+    case 'n': // Optional key to visualize whether normals are correctly computed (debug mode)
+            if (draw_normals == 1)
+            {
+                draw_normals = 0;
+                printf("normalak ez dira marraztuko\n");
+            }
+            else
+            {
+                draw_normals = 1;
+                printf("normalak marraztuko dira\n");
+            }
+        break;
+	case 'b':
 		if (atzearpegiakmarraztu == 1) 
 		    {
 		    atzearpegiakmarraztu = 0;
@@ -1361,7 +1917,7 @@ switch(key)
 	                    if ((kamera==1) &&(sel_ptr!=0)) 
 	                        {
 	                        kamera_objektuari_begira();
-	                        //print_matrizea16(M_kam);
+	                        //print_matrizea16(cam_ptr->mptr->m);
 	                        }
 	                    }
 	                else ald_lokala = 1;
@@ -1420,7 +1976,8 @@ switch(key)
 		  else 
 		    {
 		    if (kamera == 1)
-		        {// kameraren ikuste-bolumena handitu
+		        {// kameraren ikuste-bolumena handitu (zoom out)
+                    zoom *= 1.1; // Wider view   
 		        }
 		    }
 		break;
@@ -1431,7 +1988,11 @@ switch(key)
 		  else 
 		    {
 		    if (kamera == 1)
-		        {// kameraren ikuste-bolumena txikitu
+		        {// kameraren ikuste-bolumena txikitu (zoom in)
+                    zoom /= 1.1; // Narrower view
+
+                    // Prevent extreme zoom in
+                    if (zoom < 0.1) zoom = 0.1;
 		        }
 		    }
 		break;
@@ -1455,6 +2016,7 @@ switch(key)
                     {
                     //kamera objektuari begira jarri behar da!!
                     kamera_objektuari_begira();
+                    //print_matrizea16(sel_ptr->mptr->m);
                     }
                 }
             break;
@@ -1522,18 +2084,22 @@ int retval,i;
         //glLoadIdentity();
         //glOrtho(-1.0, 1.0, -1.0, 1.0, 1.0, -1.0);
         //glMatrixMode(GL_MODELVIEW);
-        denak = 0;
-        lineak =0;
+        denak = 1;
+        lineak = 1;
         objektuak = 1;
         kamera = 0;
         foptr = 0;
         sel_ptr = 0;
         aldaketa = 'r';
-        ald_lokala =1;
-        objektuaren_ikuspegia =0;
-        paralelo = 1;
-        atzearpegiakmarraztu = 1;
-        // TODO kamera hasieratu kamera (0,0,2.5) kokapenean dago hasieran
+        ald_lokala = 1;
+        objektuaren_ikuspegia = 0;
+        paralelo = 0;
+        atzearpegiakmarraztu = 0;
+        draw_normals = 0;
+        zoom = 1.0;
+
+        // Kamera hasieratu kamera (0,0,2.5) kokapenean dago hasieran
+        initCamera((point3){0,0,2.5});
         
         // TODO Argiak hasieratu
         
@@ -1557,6 +2123,8 @@ int retval,i;
                         
             read_from_file("abioia-1+1.obj",&foptr);
             if (sel_ptr != 0) sel_ptr->mptr->m[7] = 0.7;
+
+            read_from_file("abioia-1+1.obj",&foptr);
 
             
             /*read_from_file("z-1+1.obj",&foptr);
